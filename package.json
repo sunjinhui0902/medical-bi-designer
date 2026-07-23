@@ -1,0 +1,29 @@
+{
+  "name": "medical-bi-designer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
+    "preview": "vite preview",
+    "start:api": "node server/index.mjs",
+    "test:phase1": "node --experimental-strip-types --test tests/phase1-query-result.test.ts",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "dependencies": {
+    "@tabler/core": "^1.4.0",
+    "@tabler/icons-vue": "^3.34.1",
+    "echarts": "^6.0.0",
+    "pg": "^8.22.0",
+    "vue": "^3.5.21",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.7",
+    "vue-tsc": "^3.0.8"
+  }
+}

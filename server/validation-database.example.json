@@ -1,0 +1,12 @@
+{
+  "dataSourceId": "source-example",
+  "connectionName": "local-postgres",
+  "host": "127.0.0.1",
+  "port": 5432,
+  "database": "medical_bi",
+  "username": "readonly_user",
+  "defaultSchema": "public",
+  "sslMode": "prefer",
+  "connectTimeoutSeconds": 20,
+  "purpose": "development-validation"
+}

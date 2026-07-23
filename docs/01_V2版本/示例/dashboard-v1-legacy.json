@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "V1 兼容验证",
+  "canvas": {
+    "width": 600,
+    "height": 520,
+    "background": "#f7f9fb",
+    "showGrid": true,
+    "gridSize": 12
+  },
+  "titleStyle": {
+    "show": true,
+    "fontSize": 24,
+    "color": "#243447",
+    "fontWeight": 700,
+    "align": "left"
+  },
+  "components": [
+    {
+      "id": "legacy_chart",
+      "type": "line",
+      "title": "旧版收入趋势",
+      "position": { "x": 0, "y": 0, "width": 360, "height": 240, "zIndex": 1 },
+      "dataConfig": {
+        "sourceKind": "mock",
+        "datasetId": "income_month",
+        "dimension": "month_code",
+        "field": "amount"
+      },
+      "styleConfig": {
+        "background": "#ffffff",
+        "titleColor": "#243447",
+        "titleSize": 10,
+        "titleWeight": 650,
+        "titleVisible": true
+      }
+    }
+  ]
+}

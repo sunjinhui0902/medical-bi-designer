@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "name": "V2 多字段模型验证",
+  "canvas": {
+    "width": 960,
+    "height": 540,
+    "background": "#f7f9fb",
+    "showGrid": true,
+    "gridSize": 12
+  },
+  "titleStyle": {
+    "show": true,
+    "fontSize": 24,
+    "color": "#243447",
+    "fontWeight": 700,
+    "align": "left"
+  },
+  "components": [
+    {
+      "id": "v2_combo_contract",
+      "type": "line",
+      "title": "双轴组合模型",
+      "position": { "x": 0, "y": 0, "width": 520, "height": 320, "zIndex": 1 },
+      "dataConfig": {
+        "version": 2,
+        "sourceKind": "server",
+        "datasetId": "dataset-uuid",
+        "dimensions": [
+          { "field": "month_code", "role": "category", "sort": "asc" },
+          { "field": "dept_name", "role": "series" }
+        ],
+        "measures": [
+          { "field": "amount", "aggregation": "sum", "unit": "万元", "chartType": "bar", "axis": "left" },
+          { "field": "visit_count", "aggregation": "sum", "unit": "人次", "chartType": "line", "axis": "right" }
+        ],
+        "filters": [],
+        "sort": [],
+        "limit": 200
+      },
+      "styleConfig": {
+        "background": "#ffffff",
+        "titleColor": "#243447",
+        "titleSize": 10,
+        "titleWeight": 650,
+        "titleVisible": true
+      }
+    }
+  ]
+}

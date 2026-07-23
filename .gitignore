@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+*.log
+.DS_Store
+server/.data/
+server/validation-database.json
+docs/04_测试验证/固定验证数据库.md
+.env
+.env.*
+!.env.example
+.step5-backup/

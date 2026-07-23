@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible defect using synthetic data.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include patient data, credentials, internal addresses, or private SQL.
+        Report security issues through GitHub Private Vulnerability Reporting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide a minimal reproduction using synthetic data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: Windows 11, Node 22, browser version
+    validations:
+      required: true

@@ -4,6 +4,10 @@ Medical BI Designer is currently preparing the V3 architecture. External feature
 
 Bug reports and documentation corrections are welcome if they use synthetic data and contain no private healthcare or infrastructure information.
 
+The repository is source-visible and all rights are reserved. Public access,
+issue participation, or acceptance of a pull request does not by itself grant
+an open-source license to the project.
+
 ## Before opening an issue
 
 - Check existing issues.

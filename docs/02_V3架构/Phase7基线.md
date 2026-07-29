@@ -18,8 +18,10 @@
 | V3 当前草稿 | `medical-bi-designer-dashboard-v3` | P7.3 起唯一写入格式 |
 | V2 迁移备份 | `medical-bi-designer-dashboard-v2-backup` | P7.3 首次迁移前写入 |
 | 组件模板 | `medical-bi-designer-component-templates-v1` | Phase7 保持现状 |
+| V1 迁移备份 | `medical-bi-designer-dashboard-v1-backup` | P7.3 首次迁移前写入 |
+| 无效 V3 备份 | `medical-bi-designer-dashboard-v3-invalid-backup` | 恢复旧草稿前保留损坏原文 |
 
-P7.3 将上述看板 Key 收敛到存储服务常量；P7.0 只记录现状，不提前改动设计器读写。
+P7.3 已将上述看板 Key 收敛到 `dashboardStorageV3.ts`；设计器接入仍留在 P7.6。
 
 ## 回归基线
 

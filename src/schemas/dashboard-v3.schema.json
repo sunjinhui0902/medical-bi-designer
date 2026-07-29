@@ -1,0 +1,177 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://medical-bi-designer.local/schemas/dashboard-v3.schema.json",
+  "title": "Medical BI Designer Dashboard Application V3",
+  "type": "object",
+  "required": ["version", "id", "name", "defaultPageId", "parameters", "pages", "theme", "runtimePolicy", "extensionRefs"],
+  "properties": {
+    "version": { "const": 3 },
+    "id": { "$ref": "#/$defs/nonEmptyString" },
+    "name": { "$ref": "#/$defs/nonEmptyString" },
+    "description": { "type": "string" },
+    "defaultPageId": { "$ref": "#/$defs/nonEmptyString" },
+    "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+    "pages": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/page" } },
+    "theme": { "$ref": "#/$defs/theme" },
+    "runtimePolicy": { "$ref": "#/$defs/runtimePolicy" },
+    "extensionRefs": { "$ref": "#/$defs/extensionRefs" },
+    "publishConfig": { "$ref": "#/$defs/publishConfig" },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "canvas": {
+      "type": "object",
+      "required": ["width", "height", "background", "showGrid", "gridSize"],
+      "properties": {
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "background": { "type": "string" },
+        "showGrid": { "type": "boolean" },
+        "gridSize": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "titleStyle": {
+      "type": "object",
+      "required": ["show", "fontSize", "color", "fontWeight", "align"],
+      "properties": {
+        "show": { "type": "boolean" },
+        "fontSize": { "type": "number", "exclusiveMinimum": 0 },
+        "color": { "type": "string" },
+        "fontWeight": { "type": "number" },
+        "align": { "enum": ["left", "center", "right"] }
+      },
+      "additionalProperties": true
+    },
+    "page": {
+      "type": "object",
+      "required": ["id", "name", "code", "order", "type", "canvas", "titleStyle", "controls", "components", "pageEvents"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "order": { "type": "integer", "minimum": 1 },
+        "type": { "enum": ["standard", "dialog"] },
+        "canvas": { "$ref": "#/$defs/canvas" },
+        "titleStyle": { "$ref": "#/$defs/titleStyle" },
+        "controls": { "type": "array", "maxItems": 0 },
+        "components": { "type": "array", "items": { "type": "object" } },
+        "pageEvents": { "type": "array", "maxItems": 0 }
+      },
+      "additionalProperties": true
+    },
+    "parameterOption": {
+      "type": "object",
+      "required": ["label", "value"],
+      "properties": {
+        "label": { "$ref": "#/$defs/nonEmptyString" },
+        "value": {}
+      },
+      "additionalProperties": false
+    },
+    "parameterSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "options"],
+          "properties": {
+            "kind": { "const": "static" },
+            "options": { "type": "array", "items": { "$ref": "#/$defs/parameterOption" } }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "dictionaryCode"],
+          "properties": {
+            "kind": { "const": "dictionary" },
+            "dictionaryCode": { "type": "string", "pattern": "^builtin\\.[a-z][A-Za-z0-9]*$" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "systemCode"],
+          "properties": {
+            "kind": { "const": "system" },
+            "systemCode": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "parameterValidation": {
+      "type": "object",
+      "properties": {
+        "allowEmpty": { "type": "boolean" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "pattern": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["id", "code", "name", "type", "scope", "required", "source"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "enum": ["string", "number", "date", "dateRange", "singleSelect", "multiSelect"] },
+        "scope": { "const": "application" },
+        "pageId": { "type": "string" },
+        "required": { "type": "boolean" },
+        "defaultValue": {},
+        "source": { "$ref": "#/$defs/parameterSource" },
+        "validation": { "$ref": "#/$defs/parameterValidation" },
+        "aliases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": true
+    },
+    "theme": {
+      "type": "object",
+      "required": ["id", "tokens"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "tokens": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "runtimePolicy": {
+      "type": "object",
+      "required": ["previewScaleMode", "allowScroll", "parameterPersistence", "maxEventDepth"],
+      "properties": {
+        "previewScaleMode": { "enum": ["fit", "width", "actual"] },
+        "allowScroll": { "type": "boolean" },
+        "parameterPersistence": { "enum": ["none", "session", "url"] },
+        "maxEventDepth": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "extensionRefs": {
+      "type": "object",
+      "properties": {
+        "permissionPolicyRef": { "type": "string" },
+        "queryCachePolicyRef": { "type": "string" },
+        "semanticLayerRef": { "type": "string" },
+        "algorithmProviderRefs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "additionalProperties": true
+    },
+    "publishConfig": {
+      "type": "object",
+      "required": ["status", "entryPageId", "access"],
+      "properties": {
+        "status": { "enum": ["draft", "published", "archived"] },
+        "publishedVersion": { "type": "integer", "minimum": 1 },
+        "entryPageId": { "$ref": "#/$defs/nonEmptyString" },
+        "access": { "enum": ["private", "authenticated", "public"] },
+        "publishedAt": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

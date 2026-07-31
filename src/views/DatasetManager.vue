@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, RouterLink, useRoute, useRouter } from 'vue-router'
 import {
-  IconArrowLeft, IconBolt, IconCopy, IconDatabase, IconDeviceFloppy, IconPlus,
+  IconArrowLeft, IconBolt, IconBraces, IconCopy, IconDatabase, IconDeviceFloppy, IconPlus,
   IconRefresh, IconSearch, IconTable, IconTrash, IconX,
 } from '@tabler/icons-vue'
 
@@ -229,7 +229,7 @@ async function api(path: string, body?: unknown, requestedMethod?: 'GET' | 'POST
   <div class="dataset-studio-v2">
     <header class="dataset-v2-toolbar">
       <div><IconTable :size="22" /><span><b>数据集 2.0</b><small>元数据 · 字段语义 · 指标 · 参数</small></span></div>
-      <nav><RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/data-sources"><IconDatabase :size="16" />数据源</RouterLink></nav>
+      <nav><RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/data-sources"><IconDatabase :size="16" />数据源</RouterLink><RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink></nav>
     </header>
 
     <main class="dataset-v2-layout">

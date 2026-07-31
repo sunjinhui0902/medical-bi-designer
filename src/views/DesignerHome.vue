@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   IconActivityHeartbeat,
   IconBed,
+  IconBraces,
   IconBuildingHospital,
   IconChartBar,
   IconChartLine,
@@ -827,7 +828,7 @@ onBeforeUnmount(() => {
             <button v-for="item in group.items" :key="item.type" draggable="true" type="button" :data-component-type="item.type" title="单击添加，或拖入画布" @dragstart="handleDragStart($event, item.type)" @click="addComponent(item.type)"><span :class="`tone-${item.tone}`"><component :is="item.icon" :size="15" /></span><b>{{ item.label }}</b><IconPlus class="add-indicator" :size="11" /></button>
           </div></section>
           <template v-if="showMedicalComponents"><section v-for="group in medicalTemplateGroups" :key="group.category" class="medical-template-group"><h2><span title="双击重命名分类" @dblclick="renameMedicalCategory(group.category)">{{ group.category }}</span><em>{{ group.items.length }}</em></h2><div class="medical-template-grid"><button v-for="template in group.items" :key="template.id" type="button" class="medical-template-card" :title="`单击复用，双击重命名：${template.name}`" @click="queueMedicalTemplate(template)" @dblclick="renameMedicalTemplate(template)"><span class="tone-blue"><IconDeviceDesktopAnalytics :size="15" /></span><b>{{ template.name }}</b><IconPlus class="add-indicator" :size="11" /></button></div></section></template>
-          <section class="library-data-section"><h2><span>数据管理</span></h2><div class="library-navigation"><RouterLink to="/data-sources"><IconDatabase :size="14" />数据源</RouterLink><RouterLink to="/datasets"><IconTable :size="14" />数据集</RouterLink></div><template v-if="selected"><button class="bind-dataset-button" type="button" @click="datasetCatalogOpen = true"><IconDatabase :size="14" />为当前组件选择数据集</button><div class="library-bound-dataset"><small>当前绑定</small><b>{{ datasetNameFor(selected) }}</b><span>{{ datasetRowCountFor(selected) }} 行</span></div><button v-if="sourceKindFor(selected) === 'server'" class="bind-dataset-button secondary" type="button" :disabled="isDatasetLoading(selected)" @click="refreshSelectedDataset">{{ isDatasetLoading(selected) ? '读取中…' : '刷新真实数据' }}</button></template></section>
+          <section class="library-data-section"><h2><span>数据管理</span></h2><div class="library-navigation"><RouterLink to="/data-sources"><IconDatabase :size="14" />数据源</RouterLink><RouterLink to="/datasets"><IconTable :size="14" />数据集</RouterLink><RouterLink to="/parameters"><IconBraces :size="14" />参数中心</RouterLink></div><template v-if="selected"><button class="bind-dataset-button" type="button" @click="datasetCatalogOpen = true"><IconDatabase :size="14" />为当前组件选择数据集</button><div class="library-bound-dataset"><small>当前绑定</small><b>{{ datasetNameFor(selected) }}</b><span>{{ datasetRowCountFor(selected) }} 行</span></div><button v-if="sourceKindFor(selected) === 'server'" class="bind-dataset-button secondary" type="button" :disabled="isDatasetLoading(selected)" @click="refreshSelectedDataset">{{ isDatasetLoading(selected) ? '读取中…' : '刷新真实数据' }}</button></template></section>
         </div>
         <div class="panel-footnote active-note"><i></i>组件库与数据管理可独立滚动</div>
       </aside>

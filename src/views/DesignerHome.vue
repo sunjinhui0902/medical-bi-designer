@@ -32,8 +32,21 @@ import DataChart from '../components/DataChart.vue'
 import DatasetCatalog, { type CatalogDataset, type CatalogField } from '../components/DatasetCatalog.vue'
 import { getMockDataset, mockDatasets } from '../data/mockDatasets'
 import type { QueryResult } from '../models/bi'
+import {
+  createDefaultDashboardApplicationV3,
+  type DashboardApplicationV3,
+} from '../models/dashboard-v3'
 import type { ComponentType, DashboardComponent, DashboardModelV2, Position } from '../models/dashboard'
-import { migrateDashboard } from '../services/dashboardMigration'
+import {
+  applyDesignerDashboardToApplicationV3,
+  createDefaultPageDesignerAdapterV3,
+} from '../services/dashboardDesignerAdapterV3'
+import {
+  exportDashboardApplicationV3,
+  importDashboardApplicationV3,
+  loadDashboardApplicationV3,
+  saveDashboardApplicationV3,
+} from '../services/dashboardStorageV3'
 import { comparisonColor, comparisonRate, formatKpiValue, targetProgress } from '../services/kpi'
 import { instantiateMedicalTemplate, normalizeMedicalTemplates, saveMedicalTemplate, type MedicalComponentTemplate } from '../services/componentTemplates'
 import { buildComponentDataView, normalizeQueryResult } from '../services/queryResult'
@@ -51,8 +64,6 @@ interface PointerAction {
   start: Position
 }
 
-const STORAGE_KEY = 'medical-bi-designer-dashboard-v2'
-const LEGACY_STORAGE_KEY = 'medical-bi-designer-dashboard-v1'
 const TEMPLATE_STORAGE_KEY = 'medical-bi-designer-component-templates-v1'
 const MIN_COMPONENT_WIDTH = 120
 const MIN_COMPONENT_HEIGHT = 78
@@ -79,6 +90,9 @@ const tabs: Array<{ id: PropertyTab; label: string }> = [
   { id: 'layout', label: '布局' }, { id: 'advanced', label: '高级' },
 ]
 
+const dashboardApplication = ref<DashboardApplicationV3>(
+  createDefaultDashboardApplicationV3({ name: '医院运营概览' }),
+)
 const dashboard = ref<DashboardModelV2>(createDefaultDashboard())
 const activeTab = ref<PropertyTab>('data')
 const query = ref('')
@@ -114,7 +128,11 @@ const medicalTemplateGroups = computed(() => {
   return [...new Set(filtered.map((item) => item.category))].sort((a, b) => a.localeCompare(b, 'zh-CN'))
     .map((category) => ({ category, items: filtered.filter((item) => item.category === category) }))
 })
-const dashboardJson = computed(() => JSON.stringify(dashboard.value, null, 2))
+const dashboardJson = computed(() => JSON.stringify(
+  applyDesignerDashboardToApplicationV3(dashboardApplication.value, dashboard.value),
+  null,
+  2,
+))
 const selectedJson = computed(() => selected.value ? JSON.stringify(selected.value, null, 2) : '{}')
 const selectedDimensionField = computed({
   get: () => selected.value?.dataConfig.dimensions[0]?.field ?? '',
@@ -688,31 +706,66 @@ function componentStyle(component: DashboardComponent) {
   return { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px`, zIndex, background: component.styleConfig.background }
 }
 
+function currentApplicationSnapshot(): DashboardApplicationV3 {
+  return applyDesignerDashboardToApplicationV3(dashboardApplication.value, dashboard.value)
+}
+
+function applyDashboardApplication(application: DashboardApplicationV3) {
+  dashboardApplication.value = application
+  dashboard.value = createDefaultPageDesignerAdapterV3(application).dashboard
+  normalizeCanvas()
+  selectedId.value = dashboard.value.components[0]?.id ?? ''
+}
+
 function saveDashboard() {
-  localStorage.setItem(STORAGE_KEY, dashboardJson.value)
-  setSaveState('已保存到本机')
+  const application = currentApplicationSnapshot()
+  const result = saveDashboardApplicationV3(localStorage, application)
+  if (!result.success) {
+    setSaveState(`保存失败：${result.errors[0] ?? 'V3 校验未通过'}`)
+    return
+  }
+  dashboardApplication.value = application
+  setSaveState('V3 草稿已保存到本机')
 }
 
 function loadSavedDashboard() {
-  const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY)
-  if (!stored) return
-  try {
-    applyDashboard(JSON.parse(stored))
-    setSaveState('已恢复本机草稿')
-  } catch {
-    setSaveState('草稿恢复失败')
+  const result = loadDashboardApplicationV3(localStorage)
+
+  if (result.source === 'default' && result.persisted && !result.errors.length) {
+    const application = applyDesignerDashboardToApplicationV3(
+      result.application,
+      createDefaultDashboard(),
+    )
+    const saveResult = saveDashboardApplicationV3(localStorage, application)
+    applyDashboardApplication(application)
+    setSaveState(saveResult.success ? '已建立 V3 草稿' : 'V3 草稿初始化失败')
+    return
+  }
+
+  applyDashboardApplication(result.application)
+  if (result.errors.length) {
+    setSaveState('草稿恢复失败，已使用安全回退')
+  } else if (result.source === 'v3') {
+    setSaveState('已恢复 V3 草稿')
+  } else {
+    setSaveState(`${result.source.toUpperCase()} 草稿已迁移到 V3`)
   }
 }
 
 function exportDashboard() {
-  const blob = new Blob([dashboardJson.value], { type: 'application/json;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = `${dashboard.value.name || 'medical-bi-dashboard'}.json`
-  anchor.click()
-  URL.revokeObjectURL(url)
-  setSaveState('JSON 已导出')
+  try {
+    const json = exportDashboardApplicationV3(currentApplicationSnapshot())
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${dashboard.value.name || 'medical-bi-dashboard'}.v3.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    setSaveState('V3 JSON 已导出')
+  } catch {
+    setSaveState('V3 JSON 导出失败')
+  }
 }
 
 function openImport() {
@@ -724,19 +777,17 @@ async function importDashboard(event: Event) {
   const file = input.files?.[0]
   if (!file) return
   try {
-    applyDashboard(JSON.parse(await file.text()))
-    setSaveState('JSON 已导入')
+    const result = importDashboardApplicationV3(await file.text())
+    if (!result.application || !result.report.success) {
+      throw new Error(result.report.errors.join('；'))
+    }
+    applyDashboardApplication(result.application)
+    setSaveState(result.report.sourceVersion === 3 ? 'V3 JSON 已导入' : '旧版 JSON 已迁移导入')
   } catch {
-    setSaveState('JSON 格式无效')
+    setSaveState('JSON 格式或模型无效')
   } finally {
     input.value = ''
   }
-}
-
-function applyDashboard(value: unknown) {
-  dashboard.value = migrateDashboard(value)
-  normalizeCanvas()
-  selectedId.value = dashboard.value.components[0]?.id ?? ''
 }
 
 function markDirty() {

@@ -1,0 +1,113 @@
+{
+  "version": 3,
+  "id": "dashboard-phase7-example",
+  "name": "Phase7 V3 示例看板",
+  "description": "用于验证 V3 根模型、参数定义和单页设计器兼容性的脱敏示例。",
+  "defaultPageId": "page-home",
+  "parameters": [
+    {
+      "id": "parameter-year",
+      "code": "year_code",
+      "name": "年度",
+      "type": "singleSelect",
+      "scope": "application",
+      "required": false,
+      "source": {
+        "kind": "dictionary",
+        "dictionaryCode": "builtin.year"
+      },
+      "validation": {
+        "allowEmpty": true
+      },
+      "aliases": ["year"]
+    }
+  ],
+  "pages": [
+    {
+      "id": "page-home",
+      "name": "首页",
+      "code": "home",
+      "order": 1,
+      "type": "standard",
+      "canvas": {
+        "width": 1200,
+        "height": 600,
+        "background": "#f7f9fb",
+        "showGrid": true,
+        "gridSize": 12
+      },
+      "titleStyle": {
+        "show": true,
+        "fontSize": 24,
+        "color": "#243447",
+        "fontWeight": 700,
+        "align": "left"
+      },
+      "controls": [],
+      "components": [
+        {
+          "id": "component-phase7-line",
+          "type": "line",
+          "title": "月度收入趋势",
+          "position": {
+            "x": 24,
+            "y": 24,
+            "width": 520,
+            "height": 320,
+            "zIndex": 1
+          },
+          "dataConfig": {
+            "version": 2,
+            "sourceKind": "mock",
+            "datasetId": "income_month",
+            "dimensions": [
+              {
+                "field": "month_code",
+                "role": "category",
+                "sort": "asc"
+              }
+            ],
+            "measures": [
+              {
+                "field": "amount",
+                "aggregation": "sum",
+                "unit": "万元",
+                "chartType": "line",
+                "axis": "left"
+              }
+            ],
+            "filters": [],
+            "sort": [],
+            "limit": 200
+          },
+          "styleConfig": {
+            "background": "#ffffff",
+            "titleColor": "#243447",
+            "titleSize": 14,
+            "titleWeight": 650,
+            "titleVisible": true
+          }
+        }
+      ],
+      "pageEvents": []
+    }
+  ],
+  "theme": {
+    "id": "medical-light",
+    "tokens": {}
+  },
+  "runtimePolicy": {
+    "previewScaleMode": "width",
+    "allowScroll": true,
+    "parameterPersistence": "session",
+    "maxEventDepth": 10
+  },
+  "extensionRefs": {},
+  "publishConfig": {
+    "status": "draft",
+    "entryPageId": "page-home",
+    "access": "private"
+  },
+  "createdAt": "2026-08-03T00:00:00.000Z",
+  "updatedAt": "2026-08-03T00:00:00.000Z"
+}

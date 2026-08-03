@@ -65,6 +65,22 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
     })
   }
 
+  const controlIds = new Set<string>()
+  for (const [pageIndex, page] of application.pages.entries()) {
+    for (const [controlIndex, control] of page.controls.entries()) {
+      const path = `/pages/${pageIndex}/controls/${controlIndex}`
+      if (controlIds.has(control.id)) {
+        issues.push({ path: `${path}/id`, keyword: 'uniqueControlId', message: '控件 ID 不能重复' })
+      }
+      controlIds.add(control.id)
+      for (const parameterId of control.parameterIds) {
+        if (!parameterIds.includes(parameterId)) {
+          issues.push({ path: `${path}/parameterIds`, keyword: 'parameterReference', message: `参数不存在：${parameterId}` })
+        }
+      }
+    }
+  }
+
   return issues
 }
 

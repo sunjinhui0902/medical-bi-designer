@@ -2,12 +2,28 @@ import type {
   CanvasConfig,
   DashboardComponent,
   DashboardTitleStyle,
+  Position,
 } from './dashboard'
 import type { ParameterDefinitionV3 } from './parameters'
 
 export type DashboardPageTypeV3 = 'standard' | 'dialog'
 export type PreviewScaleModeV3 = 'fit' | 'width' | 'actual'
 export type ParameterPersistenceV3 = 'none' | 'session' | 'url'
+
+export type ParameterControlTypeV3 = 'buttonGroup' | 'singleSelect' | 'multiSelect' | 'date' | 'dateRange'
+
+export interface ParameterControlV3 {
+  id: string
+  type: ParameterControlTypeV3
+  parameterIds: string[]
+  position: Position
+  styleConfig: Record<string, unknown>
+  interaction: {
+    submitMode: 'immediate' | 'manual'
+    clearable: boolean
+    cascadeFrom?: string[]
+  }
+}
 
 export interface DashboardPageV3 {
   id: string
@@ -17,7 +33,7 @@ export interface DashboardPageV3 {
   type: DashboardPageTypeV3
   canvas: CanvasConfig
   titleStyle: DashboardTitleStyle
-  controls: Record<string, unknown>[]
+  controls: ParameterControlV3[]
   components: DashboardComponent[]
   pageEvents: Record<string, unknown>[]
 }

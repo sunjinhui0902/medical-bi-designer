@@ -86,6 +86,16 @@ function validateSource(
     return
   }
 
+  if (parameter.source.kind === 'dataset') {
+    if (!parameter.source.datasetId.trim()) {
+      issue(issues, '/source/datasetId', 'datasetRequired', '选项数据集不能为空')
+    }
+    if (!parameter.source.valueField.trim() || !parameter.source.labelField.trim()) {
+      issue(issues, '/source', 'datasetFieldsRequired', '选项值字段和名称字段不能为空')
+    }
+    return
+  }
+
   const seen = new Set<string>()
   parameter.source.options.forEach((option, index) => {
     if (!option.label.trim()) {

@@ -57,7 +57,7 @@
         "type": { "enum": ["standard", "dialog"] },
         "canvas": { "$ref": "#/$defs/canvas" },
         "titleStyle": { "$ref": "#/$defs/titleStyle" },
-        "controls": { "type": "array", "maxItems": 0 },
+        "controls": { "type": "array", "items": { "$ref": "#/$defs/parameterControl" } },
         "components": { "type": "array", "items": { "type": "object" } },
         "pageEvents": { "type": "array", "maxItems": 0 }
       },
@@ -100,8 +100,62 @@
             "systemCode": { "$ref": "#/$defs/nonEmptyString" }
           },
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "datasetId", "valueField", "labelField"],
+          "properties": {
+            "kind": { "const": "dataset" },
+            "datasetId": { "$ref": "#/$defs/nonEmptyString" },
+            "valueField": { "$ref": "#/$defs/nonEmptyString" },
+            "labelField": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
         }
       ]
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y", "width", "height", "zIndex"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "zIndex": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "parameterControl": {
+      "type": "object",
+      "required": ["id", "type", "parameterIds", "position", "styleConfig", "interaction"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "enum": ["buttonGroup", "singleSelect", "multiSelect", "date", "dateRange"] },
+        "parameterIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "position": { "$ref": "#/$defs/position" },
+        "styleConfig": { "type": "object" },
+        "interaction": {
+          "type": "object",
+          "required": ["submitMode", "clearable"],
+          "properties": {
+            "submitMode": { "enum": ["immediate", "manual"] },
+            "clearable": { "type": "boolean" },
+            "cascadeFrom": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/nonEmptyString" },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "parameterValidation": {
       "type": "object",

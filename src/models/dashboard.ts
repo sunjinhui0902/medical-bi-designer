@@ -1,4 +1,4 @@
-import type { ComponentDataConfigV2 } from './bi'
+import type { ComponentDataConfig } from './bi'
 
 export type ComponentType = 'kpi' | 'line' | 'bar' | 'pie' | 'table' | 'text' | 'income' | 'outpatient' | 'ranking' | 'bed' | 'area' | 'combo' | 'scatter' | 'bubble'
 
@@ -94,7 +94,7 @@ export interface DashboardComponent {
   type: ComponentType
   title: string
   position: Position
-  dataConfig: ComponentDataConfigV2
+  dataConfig: ComponentDataConfig
   styleConfig: ComponentStyle
   analysisConfig?: AnalysisConfig
   kpiConfig?: KpiConfig

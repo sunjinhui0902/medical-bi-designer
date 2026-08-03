@@ -39,11 +39,11 @@ test('V3 工厂每次返回相互独立的应用对象', () => {
   assert.equal(second.pages[0].canvas.width, 1200)
 })
 
-test('V3 Schema 拒绝错误版本、缺失页面与非空 Phase7 控件', () => {
+test('V3 Schema 拒绝错误版本、缺失页面与不完整控件', () => {
   const wrongVersion = { ...createDefaultDashboardApplicationV3(), version: 2 }
   const missingPages = { ...createDefaultDashboardApplicationV3(), pages: [] }
   const withControl = createDefaultDashboardApplicationV3()
-  withControl.pages[0].controls.push({ id: 'control-1' })
+  withControl.pages[0].controls.push({ id: 'control-1' } as never)
 
   assert.equal(validateDashboardApplicationV3(wrongVersion).valid, false)
   assert.equal(validateDashboardApplicationV3(missingPages).valid, false)

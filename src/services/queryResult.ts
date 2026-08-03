@@ -1,4 +1,4 @@
-import type { Aggregation, ComponentDataConfigV2, ComponentDataView, MeasureBinding, QueryResult } from '../models/bi'
+import type { Aggregation, ComponentDataConfig, ComponentDataView, MeasureBinding, QueryResult } from '../models/bi'
 
 function inferType(values: unknown[]): 'string' | 'number' | 'date' | 'boolean' | 'unknown' {
   const value = values.find((item) => item !== null && item !== undefined)
@@ -93,7 +93,7 @@ function measureSeries(measure: MeasureBinding, seriesName?: string) {
   }
 }
 
-export function buildComponentDataView(rows: Array<Record<string, unknown>>, config: ComponentDataConfigV2): ComponentDataView {
+export function buildComponentDataView(rows: Array<Record<string, unknown>>, config: ComponentDataConfig): ComponentDataView {
   const category = config.dimensions.find((item) => item.role === 'category') ?? config.dimensions[0]
   const seriesDimension = config.dimensions.find((item) => item.role === 'series')
   const categoryGroups = new Map<string, Array<Record<string, unknown>>>()

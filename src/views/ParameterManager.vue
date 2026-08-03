@@ -253,6 +253,7 @@ function setFeedback(message: string, tone: 'neutral' | 'success' | 'error'): vo
 function sourceLabel(parameter: ParameterDefinitionV3): string {
   if (parameter.source.kind === 'dictionary') return `字典 · ${parameter.source.dictionaryCode}`
   if (parameter.source.kind === 'system') return `系统 · ${parameter.source.systemCode}`
+  if (parameter.source.kind === 'dataset') return `数据集 · ${parameter.source.datasetId}`
   return `静态 · ${parameter.source.options.length} 项`
 }
 

@@ -12,7 +12,11 @@ interface DatasetField {
   description: string; unit: string; defaultAggregation: string; numberFormat: string
   metric?: { metricId: string; metricName?: string; source: 'local' | 'external' }
 }
-interface ParameterDefinition { id: string; name: string; type: string; required?: boolean; defaultValue?: unknown }
+interface ParameterDefinition {
+  id: string; code: string; name: string; type: 'string' | 'number' | 'date' | 'dateRange' | 'singleSelect' | 'multiSelect'
+  required: boolean; sqlName: string; operator: 'eq' | 'in' | 'between'; emptyPolicy: 'omit' | 'null' | 'emptyString' | 'reject'
+  defaultValue?: unknown
+}
 interface DatasetModel {
   version: 2; id: string; code: string; name: string; category: string; purpose: string; description: string
   dataSourceId: string; sql: string; status: 'draft' | 'validated' | 'disabled'; fields: DatasetField[]
@@ -188,10 +192,27 @@ async function deleteDataset() {
 }
 
 function addParameter() {
-  form.parameters.push({ id: `param_${Date.now().toString(36)}`, name: '新参数', type: 'text', required: false })
+  const sequence = form.parameters.length + 1
+  const code = `parameter_${sequence}`
+  form.parameters.push({
+    id: `param_${Date.now().toString(36)}`,
+    code,
+    name: '新参数',
+    type: 'string',
+    required: false,
+    sqlName: form.fields[0]?.name || code,
+    operator: 'eq',
+    emptyPolicy: 'omit',
+  })
 }
 
 function removeParameter(index: number) { form.parameters.splice(index, 1) }
+
+function syncParameterRule(parameter: ParameterDefinition) {
+  parameter.operator = parameter.type === 'multiSelect' ? 'in' : parameter.type === 'dateRange' ? 'between' : 'eq'
+  if (parameter.required) parameter.emptyPolicy = 'reject'
+  else if (parameter.emptyPolicy === 'reject') parameter.emptyPolicy = 'omit'
+}
 
 function bindMetric(field: DatasetField) {
   if (field.metric) delete field.metric
@@ -259,7 +280,7 @@ async function api(path: string, body?: unknown, requestedMethod?: 'GET' | 'POST
           <div class="field-table-wrap"><table class="field-table"><thead><tr><th>字段</th><th>中文名</th><th>类型</th><th>角色</th><th>聚合</th><th>单位</th><th>格式</th><th>指标</th></tr></thead><tbody><tr v-for="field in form.fields" :key="field.name"><td><code>{{ field.name }}</code></td><td><input v-model="field.label" /></td><td>{{ field.dataType }}</td><td><select v-model="field.role"><option value="dimension">维度</option><option value="measure">指标</option><option value="parameter">参数</option><option value="helper">辅助</option></select></td><td><select v-model="field.defaultAggregation"><option value="none">无</option><option value="sum">SUM</option><option value="avg">AVG</option><option value="count">COUNT</option><option value="min">MIN</option><option value="max">MAX</option></select></td><td><input v-model="field.unit" placeholder="万元" /></td><td><input v-model="field.numberFormat" placeholder="0,0.00" /></td><td><button type="button" :class="{ linked: field.metric }" @click="bindMetric(field)">{{ field.metric ? '已关联' : '关联' }}</button></td></tr></tbody></table><div v-if="!form.fields.length" class="field-empty">请先执行 SQL 测试以解析字段。</div></div>
         </div>
 
-        <div class="editor-section"><div class="section-title"><span><b>查询参数</b><small>参数将在阶段 8 用于控件联动；当前完成定义和持久化</small></span><button type="button" @click="addParameter"><IconPlus :size="15" />添加参数</button></div><div class="parameter-list"><div v-for="(parameter, index) in form.parameters" :key="parameter.id"><input v-model="parameter.name" /><select v-model="parameter.type"><option value="text">文本</option><option value="number">数字</option><option value="date">日期</option><option value="dateRange">日期范围</option><option value="singleSelect">单选</option><option value="multiSelect">多选</option></select><label><input v-model="parameter.required" type="checkbox" />必填</label><button type="button" @click="removeParameter(index)"><IconTrash :size="15" /></button></div><p v-if="!form.parameters.length">暂无参数。</p></div></div>
+        <div class="editor-section"><div class="section-title"><span><b>查询参数</b><small>只从已解析字段生成参数化条件，不接受客户端 SQL 片段</small></span><button type="button" @click="addParameter"><IconPlus :size="15" />添加参数</button></div><div class="parameter-list"><div v-for="(parameter, index) in form.parameters" :key="parameter.id"><input v-model="parameter.code" title="参数编码" placeholder="参数编码" /><input v-model="parameter.name" title="参数名称" placeholder="参数名称" /><select v-model="parameter.type" title="参数类型" @change="syncParameterRule(parameter)"><option value="string">文本</option><option value="number">数字</option><option value="date">日期</option><option value="dateRange">日期范围</option><option value="singleSelect">单选</option><option value="multiSelect">多选</option></select><select v-model="parameter.sqlName" title="过滤字段"><option v-for="field in form.fields" :key="field.name" :value="field.name">{{ field.label || field.name }}</option></select><select v-model="parameter.operator" title="安全运算符" disabled><option value="eq">等于</option><option value="in">包含</option><option value="between">范围</option></select><select v-model="parameter.emptyPolicy" title="空值策略" :disabled="parameter.required"><option value="omit">忽略条件</option><option value="null">匹配 NULL</option><option value="emptyString">匹配空串</option><option value="reject">拒绝查询</option></select><label><input v-model="parameter.required" type="checkbox" @change="syncParameterRule(parameter)" />必填</label><button type="button" @click="removeParameter(index)"><IconTrash :size="15" /></button></div><p v-if="!form.parameters.length">暂无参数。</p></div></div>
       </section>
 
       <aside class="dataset-v2-inspector">
@@ -273,3 +294,4 @@ async function api(path: string, body?: unknown, requestedMethod?: 'GET' | 'POST
 </template>
 
 <style src="../styles/dataset-manager-v2.css"></style>
+<style src="../styles/dataset-manager-phase8.css"></style>

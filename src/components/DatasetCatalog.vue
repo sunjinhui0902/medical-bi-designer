@@ -4,6 +4,7 @@ import {
   IconChevronLeft, IconChevronRight, IconDatabase, IconSearch, IconTable,
   IconX,
 } from '@tabler/icons-vue'
+import type { DatasetQueryParameterV3 } from '../models/bi'
 
 export interface CatalogField { name: string; type: string }
 export interface CatalogDataset {
@@ -13,6 +14,7 @@ export interface CatalogDataset {
   sourceName: string
   notes: string
   fields: CatalogField[]
+  parameters?: DatasetQueryParameterV3[]
   updatedAt: string
 }
 

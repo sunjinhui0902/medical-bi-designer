@@ -1,0 +1,36 @@
+.parameter-control-runtime {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #dbe3ec;
+  background: #f8fafc;
+}
+
+.runtime-control-card,
+.runtime-control-field,
+.runtime-control-actions,
+.runtime-date-range,
+.runtime-button-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-control-card {
+  min-height: 36px;
+  padding: 5px 8px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.runtime-control-field > span:first-child { color: #475569; font-size: 12px; font-weight: 600; }
+.runtime-control-field select,
+.runtime-control-field input { min-height: 30px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 7px; }
+.runtime-control-field select[multiple] { min-height: 58px; }
+.runtime-date-range i { color: #94a3b8; font-style: normal; }
+.runtime-control-actions button,
+.runtime-button-group button { border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 6px 9px; cursor: pointer; }
+.runtime-control-actions button:first-child,
+.runtime-button-group button.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }

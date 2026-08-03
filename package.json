@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "start:api": "node server/index.mjs",
     "test:phase1": "node --experimental-strip-types --test tests/phase1-query-result.test.ts",
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "test:e2e": "playwright test",
+    "verify:node": "node scripts/verify-node.mjs",
+    "verify:full": "node scripts/verify-node.mjs --full"
   },
   "dependencies": {
     "@tabler/core": "^1.4.0",
@@ -22,6 +25,7 @@
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@vitejs/plugin-vue": "^6.0.1",
     "typescript": "~5.9.2",
     "vite": "^7.1.7",

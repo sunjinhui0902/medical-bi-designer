@@ -1,0 +1,41 @@
+.parameter-binding-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.parameter-binding-heading h3 { margin: 0; }
+
+.parameter-binding-heading button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.parameter-binding-help {
+  margin: 8px 0 10px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.parameter-refresh-policy { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+.parameter-binding-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.parameter-binding-row label,
+.parameter-binding-row small { display: block; }
+.parameter-binding-row small { margin-top: 3px; color: #64748b; font-size: 10px; }
+.parameter-binding-row select { width: 100%; min-width: 0; }

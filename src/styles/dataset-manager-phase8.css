@@ -1,0 +1,14 @@
+.parameter-list > div {
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) 105px 110px 82px 100px 58px 34px;
+}
+
+.parameter-list > div > label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.parameter-list select:disabled {
+  background: #f2f5f7;
+  color: #647485;
+}

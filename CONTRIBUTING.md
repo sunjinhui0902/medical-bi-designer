@@ -4,9 +4,15 @@ Medical BI Designer is currently preparing the V3 architecture. External feature
 
 Bug reports and documentation corrections are welcome if they use synthetic data and contain no private healthcare or infrastructure information.
 
-The repository is source-visible and all rights are reserved. Public access,
-issue participation, or acceptance of a pull request does not by itself grant
-an open-source license to the project.
+## Contribution Licensing
+
+All contributions accepted into this project will be made available under the GNU Affero General Public License v3.0 (AGPL-3.0).
+By submitting a contribution, contributors agree that accepted contributions may be distributed as part of the AGPL-3.0 licensed project.
+
+## Future Dual-Licensing Preparation
+
+The project may introduce additional contribution governance or a Contributor License Agreement (CLA) in the future before accepting substantial external code contributions, particularly to preserve the possibility of future dual licensing.
+Until the contribution licensing policy is finalized, substantial external code contributions should not be merged without explicit maintainer review.
 
 ## Before opening an issue
 

@@ -21,10 +21,10 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 1000 } },
     },
   ],
-  webServer: {
+  webServer: process.env.TY_BI_E2E_EXTERNAL_SERVER ? undefined : {
     command: 'npm run dev',
     url: 'http://127.0.0.1:5174',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 })

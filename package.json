@@ -11,7 +11,7 @@
     "start:api": "node server/index.mjs",
     "test:phase1": "node --experimental-strip-types --test tests/phase1-query-result.test.ts",
     "test": "node scripts/run-tests.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/test-e2e.mjs",
     "verify:node": "node scripts/verify-node.mjs",
     "verify:full": "node scripts/verify-node.mjs --full"
   },

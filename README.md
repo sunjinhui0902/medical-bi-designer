@@ -1,6 +1,6 @@
 # Medical BI Designer
 
-Medical BI Designer 是面向医疗运营分析场景的低代码 BI 设计器。当前 V2.0 可视化底座、V3 Phase7 应用模型与 Phase8 参数运行时和安全查询链路已完成本地验收。
+Medical BI Designer 是面向医疗运营分析场景的低代码 BI 设计器。当前 V2.0 可视化底座、V3 Phase7 应用模型、Phase8 参数运行时与 Phase9 多页面及事件基础均已完成本地验收。
 
 ## 公开访问与许可
 
@@ -20,6 +20,7 @@ Medical BI Designer 是面向医疗运营分析场景的低代码 BI 设计器�
 - 使用 V3 参数定义、筛选控件和组件级数据集参数绑定。
 - 在服务端执行占位符条件、分组聚合、排序和限制，并按参数依赖定向刷新。
 - 合并同键并发请求，使用有界短期缓存并支持手工强制刷新。
+- 管理多页面并配置受控的 SetParameter、Refresh 事件，在设计器预览会话中安全执行。
 
 ## 快速启动
 
@@ -66,6 +67,9 @@ npm run dev
 - [项目当前状态](./docs/项目当前状态.md)
 - [Phase8 实施方案](./docs/02_V3架构/Phase8实施方案.md)
 - [Phase8 最终验收记录](./docs/04_测试验证/验收记录/Phase8最终验收记录.md)
+- [Phase9 实施方案](./docs/02_V3架构/Phase9实施方案.md)
+- [Phase9 迁移说明](./docs/02_V3架构/Phase9迁移说明.md)
+- [Phase9 最终验收记录](./docs/04_测试验证/验收记录/Phase9最终验收记录.md)
 - [AI 开发交接](./AI_Development_Handover.md)
 - [文档中心](./docs/README.md)
 

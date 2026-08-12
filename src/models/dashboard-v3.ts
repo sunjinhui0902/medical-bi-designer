@@ -25,6 +25,53 @@ export interface ParameterControlV3 {
   }
 }
 
+export type EventNameV3 = 'click' | 'doubleClick' | 'valueChange' | 'rowClick' | 'pageEnter'
+
+export type JsonPrimitiveV3 = null | boolean | number | string
+export interface JsonArrayV3 extends Array<JsonValueV3> {}
+export interface JsonObjectV3 { [key: string]: JsonValueV3 }
+export type JsonValueV3 = JsonPrimitiveV3 | JsonArrayV3 | JsonObjectV3
+
+export type ValueExpressionV3 =
+  | { kind: 'parameter'; parameterId: string }
+  | { kind: 'eventField'; path: string }
+  | { kind: 'fixed'; value: JsonValueV3 }
+
+export interface EventConditionV3 {
+  left: ValueExpressionV3
+  operator: 'eq' | 'ne' | 'in' | 'notIn' | 'isEmpty' | 'notEmpty'
+  right?: ValueExpressionV3
+}
+
+export interface SetParameterActionV3 {
+  id: string
+  type: 'setParameter'
+  assignments: Array<{ parameterId: string; value: ValueExpressionV3 }>
+}
+
+export interface RefreshActionV3 {
+  id: string
+  type: 'refresh'
+  target:
+    | { kind: 'components'; componentIds: string[] }
+    | { kind: 'page'; pageId: string }
+}
+
+export type ActionDefinitionV3 = SetParameterActionV3 | RefreshActionV3
+
+export interface EventBindingV3 {
+  id: string
+  enabled: boolean
+  event: EventNameV3
+  conditions?: EventConditionV3[]
+  actions: ActionDefinitionV3[]
+  debounceMs?: number
+}
+
+export interface DashboardComponentV3 extends DashboardComponent {
+  events?: EventBindingV3[]
+}
+
 export interface DashboardPageV3 {
   id: string
   name: string
@@ -34,8 +81,8 @@ export interface DashboardPageV3 {
   canvas: CanvasConfig
   titleStyle: DashboardTitleStyle
   controls: ParameterControlV3[]
-  components: DashboardComponent[]
-  pageEvents: Record<string, unknown>[]
+  components: DashboardComponentV3[]
+  pageEvents: EventBindingV3[]
 }
 
 export interface ThemeConfigV3 {

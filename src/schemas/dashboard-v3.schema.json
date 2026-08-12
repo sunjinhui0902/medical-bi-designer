@@ -11,13 +11,14 @@
     "description": { "type": "string" },
     "defaultPageId": { "$ref": "#/$defs/nonEmptyString" },
     "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
-    "pages": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "$ref": "#/$defs/page" } },
+    "pages": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/page" } },
     "theme": { "$ref": "#/$defs/theme" },
     "runtimePolicy": { "$ref": "#/$defs/runtimePolicy" },
     "extensionRefs": { "$ref": "#/$defs/extensionRefs" },
     "publishConfig": { "$ref": "#/$defs/publishConfig" },
     "createdAt": { "type": "string" },
-    "updatedAt": { "type": "string" }
+    "updatedAt": { "type": "string" },
+    "activePageId": false
   },
   "additionalProperties": true,
   "$defs": {
@@ -58,10 +59,147 @@
         "canvas": { "$ref": "#/$defs/canvas" },
         "titleStyle": { "$ref": "#/$defs/titleStyle" },
         "controls": { "type": "array", "items": { "$ref": "#/$defs/parameterControl" } },
-        "components": { "type": "array", "items": { "type": "object" } },
-        "pageEvents": { "type": "array", "maxItems": 0 }
+        "components": { "type": "array", "items": { "$ref": "#/$defs/component" } },
+        "pageEvents": { "type": "array", "items": { "$ref": "#/$defs/eventBinding" } }
       },
       "additionalProperties": true
+    },
+    "component": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/eventBinding" } }
+      },
+      "additionalProperties": true
+    },
+    "valueExpression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "parameterId"],
+          "properties": {
+            "kind": { "const": "parameter" },
+            "parameterId": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "eventField" },
+            "path": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "fixed" },
+            "value": { "$ref": "#/$defs/jsonValue" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "jsonValue": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonValue" } }
+      ]
+    },
+    "eventCondition": {
+      "type": "object",
+      "required": ["left", "operator"],
+      "properties": {
+        "left": { "$ref": "#/$defs/valueExpression" },
+        "operator": { "enum": ["eq", "ne", "in", "notIn", "isEmpty", "notEmpty"] },
+        "right": { "$ref": "#/$defs/valueExpression" }
+      },
+      "additionalProperties": false
+    },
+    "setParameterAction": {
+      "type": "object",
+      "required": ["id", "type", "assignments"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "const": "setParameter" },
+        "assignments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["parameterId", "value"],
+            "properties": {
+              "parameterId": { "$ref": "#/$defs/nonEmptyString" },
+              "value": { "$ref": "#/$defs/valueExpression" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "refreshAction": {
+      "type": "object",
+      "required": ["id", "type", "target"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "const": "refresh" },
+        "target": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "componentIds"],
+              "properties": {
+                "kind": { "const": "components" },
+                "componentIds": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "$ref": "#/$defs/nonEmptyString" },
+                  "uniqueItems": true
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "pageId"],
+              "properties": {
+                "kind": { "const": "page" },
+                "pageId": { "$ref": "#/$defs/nonEmptyString" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "actionDefinition": {
+      "oneOf": [
+        { "$ref": "#/$defs/setParameterAction" },
+        { "$ref": "#/$defs/refreshAction" }
+      ]
+    },
+    "eventBinding": {
+      "type": "object",
+      "required": ["id", "enabled", "event", "actions"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "enabled": { "type": "boolean" },
+        "event": { "enum": ["click", "doubleClick", "valueChange", "rowClick", "pageEnter"] },
+        "conditions": { "type": "array", "items": { "$ref": "#/$defs/eventCondition" } },
+        "actions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/actionDefinition" } },
+        "debounceMs": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     },
     "parameterOption": {
       "type": "object",

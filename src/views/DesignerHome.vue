@@ -30,20 +30,50 @@ import {
 } from '@tabler/icons-vue'
 import DataChart from '../components/DataChart.vue'
 import DatasetCatalog, { type CatalogDataset, type CatalogField } from '../components/DatasetCatalog.vue'
+import EventConfigPanel from '../components/EventConfigPanel.vue'
+import PageManagerPanel from '../components/PageManagerPanel.vue'
 import { findBuiltinDictionaryV3 } from '../data/builtinDictionaries'
 import { getMockDataset, mockDatasets } from '../data/mockDatasets'
 import type { ComponentDataConfigV3, DatasetQueryParameterV3, QueryResult } from '../models/bi'
 import {
   createDefaultDashboardApplicationV3,
   type DashboardApplicationV3,
+  type EventBindingV3,
+  type JsonValueV3,
   type ParameterControlV3,
 } from '../models/dashboard-v3'
 import type { ParameterDefinitionV3 } from '../models/parameters'
 import type { ComponentType, DashboardComponent, DashboardModelV2, Position } from '../models/dashboard'
 import {
   applyDesignerDashboardToApplicationV3,
-  createDefaultPageDesignerAdapterV3,
 } from '../services/dashboardDesignerAdapterV3'
+import {
+  createPageDesignerSessionV3,
+  openPageDesignerSessionV3,
+  saveActivePageDraftV3,
+  switchPageDesignerSessionV3,
+  type PageDesignerSessionV3,
+} from '../services/pageDesignerSessionV3'
+import {
+  copyPageV3,
+  createPageV3,
+  deletePageV3,
+  reorderPagesV3,
+  setDefaultPageV3,
+} from '../services/pageManagerV3'
+import {
+  createEventBindingV3,
+  deleteEventBindingV3,
+  inspectEventBindingAuthorabilityV3,
+  listOwnerEventsV3,
+  updateEventBindingV3,
+} from '../services/eventBindingManagerV3'
+import {
+  authorableEventNamesV3,
+  eventFieldCapabilitiesForOwnerV3,
+  resolveEventOwnerV3,
+  type EventOwnerV3,
+} from '../services/eventAuthoringPolicyV3'
 import {
   suggestDatasetParameterBindingsV3,
   upgradeComponentDataConfigV3,
@@ -60,9 +90,11 @@ import { ParameterRuntimeStoreV3 } from '../services/parameterRuntimeV3'
 import {
   componentsAffectedByParameterCommitV3,
   componentsForPageEnterV3,
-  resolveDatasetParameterValuesV3,
 } from '../services/parameterRefreshV3'
-import { createQueryRuntimeKeyV3, QueryRuntimeCacheV3 } from '../services/queryRuntimeCacheV3'
+import { QueryRuntimeCacheV3 } from '../services/queryRuntimeCacheV3'
+import { createComponentQueryRefreshV3, type ComponentQueryDescriptorV3, type ComponentQueryLoadRequestV3 } from '../services/componentQueryRefreshV3'
+import { createDesignerEventRuntimeV3, createDesignerQueryStateGuardV3, safeParameterRuntimeValuesV3 } from '../services/designerEventRuntimeV3'
+import { useDesignerPreviewRuntimeV3 } from '../composables/useDesignerPreviewRuntimeV3'
 import { instantiateMedicalTemplate, normalizeMedicalTemplates, saveMedicalTemplate, type MedicalComponentTemplate } from '../services/componentTemplates'
 import { buildComponentDataView, normalizeQueryResult } from '../services/queryResult'
 
@@ -109,6 +141,7 @@ const tabs: Array<{ id: PropertyTab; label: string }> = [
 const dashboardApplication = ref<DashboardApplicationV3>(
   createDefaultDashboardApplicationV3({ name: '医院运营概览' }),
 )
+const pageSession = ref<PageDesignerSessionV3>(createPageDesignerSessionV3(dashboardApplication.value))
 const dashboard = ref<DashboardModelV2>(createDefaultDashboard())
 const activeTab = ref<PropertyTab>('data')
 const query = ref('')
@@ -128,8 +161,37 @@ const runtimeDatasets = ref<Record<string, QueryResult>>({})
 const datasetLoading = ref<Record<string, boolean>>({})
 const datasetErrors = ref<Record<string, string>>({})
 const parameterRuntime = shallowRef<ParameterRuntimeStoreV3 | null>(null)
-const parameterRuntimeValues = ref<Record<string, unknown>>({})
+const parameterRuntimeValues = ref<Record<string, JsonValueV3>>({})
 const pendingControlValues = ref<Record<string, unknown>>({})
+const eventOwner = ref<EventOwnerV3 | null>(null)
+const eventPanel = ref<{ hasDirtyDraft: () => boolean; discardDraft: () => void; applyCurrent: () => boolean } | null>(null)
+const datasetStateGuard = createDesignerQueryStateGuardV3((componentId, state, message) => {
+  datasetLoading.value = { ...datasetLoading.value, [componentId]: state === 'loading' }
+  datasetErrors.value = { ...datasetErrors.value, [componentId]: state === 'failed' ? message ?? '数据集执行失败' : '' }
+})
+type DatasetLease = ReturnType<typeof datasetStateGuard.begin>
+const descriptorDatasetLeases = new WeakMap<ComponentQueryDescriptorV3, DatasetLease>()
+const activeDatasetLeases = new Map<string, { descriptor: ComponentQueryDescriptorV3; lease: DatasetLease }>()
+const internalDatasetControllers = new Set<AbortController>()
+
+async function fetchServerDataset(request: ComponentQueryLoadRequestV3): Promise<Record<string, unknown>> {
+  const response = await fetch(`/api/datasets/${encodeURIComponent(request.datasetId)}/execute`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: request.signal,
+    body: JSON.stringify({ parameters: request.parameters, limit: request.limit, view: request.view }),
+  })
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>
+  if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : `请求失败（${response.status}）`)
+  return result
+}
+
+const componentQueryRuntime = createComponentQueryRefreshV3({
+  cache: queryRuntimeCache,
+  load: fetchServerDataset,
+  resolveView(component) { const dataset = serverDatasets.value[component.dataConfig.datasetId]; return dataset ? serverRuntimeView(component, dataset) : undefined },
+  onResolved({ descriptor, value }) {
+    descriptorDatasetLeases.get(descriptor)?.apply(descriptor.queryKey, () => { runtimeDatasets.value = { ...runtimeDatasets.value, [descriptor.componentId]: normalizeQueryResult(descriptor.datasetId, value) } })
+  },
+})
 let pointerAction: PointerAction | null = null
 let panelResize: { side: 'left' | 'right'; startX: number; startWidth: number } | null = null
 let stateTimer: number | undefined
@@ -139,8 +201,37 @@ const components = computed(() => dashboard.value.components)
 const selected = computed(() => components.value.find((component) => component.id === selectedId.value))
 const visibleTabs = computed(() => selected.value ? tabs : tabs.filter((item) => ['style', 'layout', 'advanced'].includes(item.id)))
 const selectedMedicalTemplate = computed(() => selected.value ? medicalTemplates.value.find((item) => item.sourceComponentId === selected.value?.id) : undefined)
+const activePageId = computed(() => pageSession.value.activePageId)
+const pageListItems = computed(() => dashboardApplication.value.pages.map(({ id, name, code, order, type }) => ({ id, name, code, order, type })))
+const eventOwnerEvents = computed(() => eventOwner.value ? listOwnerEventsV3(dashboardApplication.value, eventOwner.value) : [])
+const eventOwnerAuthorableEvents = computed(() => {
+  if (!eventOwner.value) return []
+  try { return authorableEventNamesV3(resolveEventOwnerV3(dashboardApplication.value, eventOwner.value).owner) }
+  catch { return [] }
+})
+const eventOwnerComponents = computed(() => eventOwner.value
+  ? dashboardApplication.value.pages.find((page) => page.id === eventOwner.value!.pageId)?.components.map(({ id, title }) => ({ id, title })) ?? []
+  : [])
 const activePageControls = computed(() => dashboardApplication.value.pages
-  .find((page) => page.id === dashboardApplication.value.defaultPageId)?.controls ?? [])
+  .find((page) => page.id === activePageId.value)?.controls ?? [])
+const previewRuntime = useDesignerPreviewRuntimeV3({
+  activePageId,
+  applicationSnapshot: currentApplicationSnapshot,
+  async preparePage(signal) { await loadActivePageDatasets(signal) },
+  createRuntime(application, onStatus) {
+    if (!parameterRuntime.value) throw new Error('参数运行时未初始化')
+    return createDesignerEventRuntimeV3({
+      application, parameters: parameterRuntime.value, queryRuntime: componentQueryRuntime, onStatus,
+      onParameters(values) { parameterRuntimeValues.value = { ...values } },
+      onQueryState(componentId, state, message, queryKey, descriptor) {
+        if (!descriptor) return
+        if (state === 'loading') { const lease = datasetStateGuard.begin(componentId, queryKey); descriptorDatasetLeases.set(descriptor, lease); activeDatasetLeases.set(componentId, { descriptor, lease }) }
+        else { const lease = descriptorDatasetLeases.get(descriptor); const active = activeDatasetLeases.get(componentId); if (!lease?.current(queryKey)) return; if (active?.descriptor === descriptor) activeDatasetLeases.delete(componentId); if (state === 'failed') lease.fail(message ?? '数据集执行失败'); else lease.succeed() }
+      },
+    })
+  },
+})
+const previewStatus = previewRuntime.status
 const medicalTemplateGroups = computed(() => {
   const keyword = query.value.trim().toLowerCase()
   const filtered = keyword
@@ -150,7 +241,7 @@ const medicalTemplateGroups = computed(() => {
     .map((category) => ({ category, items: filtered.filter((item) => item.category === category) }))
 })
 const dashboardJson = computed(() => JSON.stringify(
-  applyDesignerDashboardToApplicationV3(dashboardApplication.value, dashboard.value),
+  saveActivePageDraftV3(dashboardApplication.value, pageSession.value, dashboard.value),
   null,
   2,
 ))
@@ -172,7 +263,9 @@ const selectedMeasureField = computed({
   },
 })
 const workspaceStyle = computed(() => ({
-  gridTemplateColumns: `${leftPanelWidth.value}px minmax(0, 1fr) ${rightPanelWidth.value}px`,
+  gridTemplateColumns: previewMode.value
+    ? 'minmax(0, 1fr)'
+    : `${leftPanelWidth.value}px minmax(0, 1fr) ${rightPanelWidth.value}px`,
 }))
 const artboardWidth = computed(() => Math.max(dashboard.value.canvas.width + 58, 658))
 const canvasBackground = computed(() => ({
@@ -428,8 +521,16 @@ function normalizeCanvas() {
 
 function deleteSelected() {
   if (!selected.value) return
+  const deletingEventOwner = eventOwner.value?.kind === 'component'
+    && eventOwner.value.pageId === activePageId.value
+    && eventOwner.value.componentId === selected.value.id
+  if (deletingEventOwner && !guardEventDraft()) return
   const index = components.value.findIndex((component) => component.id === selectedId.value)
   components.value.splice(index, 1)
+  if (deletingEventOwner) {
+    eventPanel.value?.discardDraft()
+    eventOwner.value = null
+  }
   selectedId.value = components.value[Math.min(index, components.value.length - 1)]?.id ?? ''
   markDirty()
 }
@@ -575,9 +676,13 @@ function datasetErrorFor(component: DashboardComponent) {
   return sourceKindFor(component) === 'server' ? datasetErrors.value[component.id] || '' : ''
 }
 
+function runtimeParameterValues(): Record<string, JsonValueV3> {
+  return safeParameterRuntimeValuesV3(parameterRuntime.value?.snapshot().values ?? {})
+}
+
 function initializeParameterRuntime(application: DashboardApplicationV3) {
   parameterRuntime.value = new ParameterRuntimeStoreV3(application.parameters)
-  parameterRuntimeValues.value = parameterRuntime.value.snapshot().values
+  parameterRuntimeValues.value = runtimeParameterValues()
   pendingControlValues.value = {}
 }
 
@@ -611,7 +716,7 @@ async function commitControlAssignments(assignments: Array<{ parameterId: string
   if (!parameterRuntime.value || !assignments.length) return
   try {
     const commit = parameterRuntime.value.commit(assignments)
-    parameterRuntimeValues.value = commit.state.values
+    parameterRuntimeValues.value = runtimeParameterValues()
     if (!commit.changed) {
       setSaveState('参数值未变化，无需刷新')
       return
@@ -684,6 +789,13 @@ async function loadServerMetadata() {
   }
 }
 
+async function loadActivePageDatasets(signal = new AbortController().signal) {
+  await Promise.allSettled(componentsForPageEnterV3(components.value)
+    .filter((component) => sourceKindFor(component) === 'server')
+    .map((component) => loadServerDataset(component, false, signal, true)))
+  if (signal.aborted) throw new DOMException('预览页面加载已取消', 'AbortError')
+}
+
 function serverRuntimeView(component: DashboardComponent, dataset: CatalogDataset) {
   const fieldIndex = (field: string) => dataset.fields.findIndex((item) => item.name === field)
   const dimensions = component.dataConfig.dimensions.map((item) => fieldIndex(item.field)).filter((index) => index >= 0)
@@ -700,38 +812,24 @@ function serverRuntimeView(component: DashboardComponent, dataset: CatalogDatase
   return { dimensions, measures, sort, limit: component.dataConfig.limit }
 }
 
-async function loadServerDataset(component: DashboardComponent, force = false) {
-  const datasetId = component.dataConfig.datasetId
-  if (!datasetId) return
-  const key = component.id
-  datasetLoading.value = { ...datasetLoading.value, [key]: true }
-  datasetErrors.value = { ...datasetErrors.value, [key]: '' }
+async function loadServerDataset(component: DashboardComponent, force = false, signal?: AbortSignal, propagate = false) {
+  const componentId = component.id
+  const controller = signal ? undefined : new AbortController()
+  if (controller) internalDatasetControllers.add(controller)
+  const requestSignal = signal ?? controller!.signal
+  let lease: DatasetLease | undefined
   try {
-    const dataset = serverDatasets.value[datasetId]
-    const parameters = resolveDatasetParameterValuesV3(component, parameterRuntimeValues.value)
-    const view = dataset ? serverRuntimeView(component, dataset) : undefined
-    const requestBody = { parameters, limit: component.dataConfig.limit, view }
-    const key = createQueryRuntimeKeyV3(datasetId, parameters, component.dataConfig.limit, view)
-    const cached = await queryRuntimeCache.execute(key, async () => {
-      const response = await fetch(`/api/datasets/${encodeURIComponent(datasetId)}/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      })
-      const result = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(result.error || `请求失败（${response.status}）`)
-      return result as Record<string, unknown>
-    }, force)
-    const result = cached.value
-    runtimeDatasets.value = { ...runtimeDatasets.value, [key]: normalizeQueryResult(datasetId, result) }
+    const descriptor = componentQueryRuntime.describe(component, parameterRuntimeValues.value)
+    if (!descriptor) throw new Error('组件不支持服务端查询')
+    lease = datasetStateGuard.begin(componentId, descriptor.queryKey); descriptorDatasetLeases.set(descriptor, lease); activeDatasetLeases.set(componentId, { descriptor, lease })
+    await componentQueryRuntime.execute(descriptor, force, requestSignal)
+    if (lease.succeed() && activeDatasetLeases.get(componentId)?.descriptor === descriptor) activeDatasetLeases.delete(componentId)
   } catch (reason) {
-    datasetErrors.value = {
-      ...datasetErrors.value,
-      [key]: reason instanceof Error ? reason.message : '数据集执行失败',
-    }
-  } finally {
-    datasetLoading.value = { ...datasetLoading.value, [key]: false }
-  }
+    if (!lease) { lease = datasetStateGuard.begin(componentId, 'descriptor-error') }
+    const settled = requestSignal.aborted ? lease.cancel() : lease.fail(reason instanceof Error ? reason.message : '数据集执行失败')
+    if (settled && activeDatasetLeases.get(componentId)?.lease === lease) activeDatasetLeases.delete(componentId)
+    if (propagate) throw reason
+  } finally { if (controller) internalDatasetControllers.delete(controller) }
 }
 
 function refreshSelectedDataset() {
@@ -921,15 +1019,219 @@ function componentStyle(component: DashboardComponent) {
 }
 
 function currentApplicationSnapshot(): DashboardApplicationV3 {
-  return applyDesignerDashboardToApplicationV3(dashboardApplication.value, dashboard.value)
+  return saveActivePageDraftV3(dashboardApplication.value, pageSession.value, dashboard.value)
+}
+
+function activatePage(application: DashboardApplicationV3, pageId: string) {
+  const transition = openPageDesignerSessionV3(application, pageId)
+  dashboardApplication.value = transition.application
+  pageSession.value = transition.session
+  dashboard.value = transition.dashboard
+  normalizeCanvas()
+  selectedId.value = ''
+  datasetCatalogOpen.value = false
+}
+
+function cleanupDesignerRuntimeState() {
+  previewRuntime.stop()
+  for (const controller of internalDatasetControllers) controller.abort()
+  internalDatasetControllers.clear()
+  datasetStateGuard.invalidateAll()
+  activeDatasetLeases.clear()
+  queryRuntimeCache.clear()
+  runtimeDatasets.value = {}
+  datasetErrors.value = {}
+  datasetLoading.value = {}
 }
 
 function applyDashboardApplication(application: DashboardApplicationV3) {
-  dashboardApplication.value = application
+  cleanupDesignerRuntimeState()
+  previewMode.value = false
   initializeParameterRuntime(application)
-  dashboard.value = createDefaultPageDesignerAdapterV3(application).dashboard
-  normalizeCanvas()
-  selectedId.value = dashboard.value.components[0]?.id ?? ''
+  activatePage(application, application.defaultPageId)
+}
+
+function switchDesignerPage(pageId: string) {
+  if (!guardEventDraft()) return
+  const resumePreview = previewMode.value
+  if (resumePreview) previewRuntime.stop()
+  try {
+    const transition = switchPageDesignerSessionV3(
+      dashboardApplication.value,
+      pageSession.value,
+      dashboard.value,
+      pageId,
+    )
+    dashboardApplication.value = transition.application
+    pageSession.value = transition.session
+    dashboard.value = transition.dashboard
+    normalizeCanvas()
+    selectedId.value = ''
+    datasetCatalogOpen.value = false
+    setSaveState('已切换页面，当前草稿待保存')
+    if (resumePreview) void previewRuntime.start()
+    else void loadActivePageDatasets()
+  } catch (reason) {
+    setSaveState(reason instanceof Error ? reason.message : '页面切换失败')
+  }
+}
+
+function exitPreviewForPageStructure() {
+  if (!previewMode.value) return
+  previewRuntime.stop()
+  previewMode.value = false
+}
+
+function createDesignerPage(options: { name: string; code: string }): string | null {
+  if (!guardEventDraft()) return '请先应用或放弃事件草稿'
+  exitPreviewForPageStructure()
+  try {
+    const result = createPageV3(currentApplicationSnapshot(), options)
+    activatePage(result.application, result.pageId)
+    setSaveState('页面已创建，草稿待保存')
+    return null
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : '页面创建失败'
+    setSaveState(message)
+    return message
+  }
+}
+
+function copyDesignerPage(options: { name: string; code: string }): string | null {
+  if (!guardEventDraft()) return '请先应用或放弃事件草稿'
+  exitPreviewForPageStructure()
+  try {
+    const result = copyPageV3(currentApplicationSnapshot(), activePageId.value, options)
+    activatePage(result.application, result.pageId)
+    setSaveState('页面副本已创建，草稿待保存')
+    void loadActivePageDatasets()
+    return null
+  } catch (reason) {
+    const message = reason instanceof Error ? reason.message : '页面复制失败'
+    setSaveState(message)
+    return message
+  }
+}
+
+function deleteDesignerPage(pageId: string) {
+  if (!guardEventDraft()) return
+  exitPreviewForPageStructure()
+  try {
+    const snapshot = currentApplicationSnapshot()
+    const deletedIndex = snapshot.pages.findIndex((page) => page.id === pageId)
+    const application = deletePageV3(snapshot, pageId)
+    const nextPage = application.pages[Math.min(Math.max(deletedIndex, 0), application.pages.length - 1)]
+    activatePage(application, nextPage.id)
+    setSaveState('页面已删除，草稿待保存')
+    void loadActivePageDatasets()
+  } catch (reason) {
+    setSaveState(reason instanceof Error ? reason.message : '页面删除失败')
+  }
+}
+
+function guardEventDraft(): boolean {
+  if (!eventPanel.value?.hasDirtyDraft()) return true
+  const choice = window.prompt('存在未应用事件草稿。请输入“应用”“放弃”或“取消”。', '取消')?.trim()
+  if (choice === '应用') {
+    if (!eventPanel.value.applyCurrent()) return false
+  } else if (choice !== '放弃') return false
+  eventPanel.value.discardDraft()
+  eventOwner.value = null
+  return true
+}
+
+function openPageEventConfig(pageId: string) {
+  if (!guardEventDraft()) return
+  exitPreviewForPageStructure()
+  const snapshot = currentApplicationSnapshot()
+  const page = snapshot.pages.find((candidate) => candidate.id === pageId)
+  if (!page) return
+  dashboardApplication.value = snapshot
+  eventOwner.value = { kind: 'page', pageId, pageType: page.type }
+}
+
+function openComponentEventConfig() {
+  if (!selected.value || !guardEventDraft()) return
+  const snapshot = currentApplicationSnapshot()
+  const page = snapshot.pages.find((candidate) => candidate.id === activePageId.value)
+  const component = page?.components.find((candidate) => candidate.id === selected.value!.id)
+  if (!page || !component) return
+  dashboardApplication.value = snapshot
+  eventOwner.value = { kind: 'component', pageId: page.id, pageType: page.type, componentId: component.id, componentType: component.type }
+}
+
+function commitEventApplication(nextApplication: DashboardApplicationV3) {
+  const selectedComponentId = selectedId.value
+  const transition = openPageDesignerSessionV3(nextApplication, activePageId.value)
+  dashboardApplication.value = transition.application
+  pageSession.value = transition.session
+  dashboard.value = transition.dashboard
+  selectedId.value = dashboard.value.components.some((component) => component.id === selectedComponentId) ? selectedComponentId : ''
+}
+
+function inspectEventBinding(binding: EventBindingV3) {
+  if (!eventOwner.value) return { authorable: false, readOnly: true, reasons: ['事件 owner 不存在'] }
+  return inspectEventBindingAuthorabilityV3(currentApplicationSnapshot(), eventOwner.value, binding)
+}
+
+function eventFieldCapabilities(event: EventBindingV3['event']) {
+  if (!eventOwner.value) return []
+  try { return eventFieldCapabilitiesForOwnerV3(currentApplicationSnapshot(), eventOwner.value, event) }
+  catch { return [] }
+}
+
+function applyEventBinding(binding: EventBindingV3, mode: 'create' | 'update'): string | null {
+  if (!eventOwner.value) return '事件 owner 不存在'
+  try {
+    const snapshot = currentApplicationSnapshot()
+    const nextApplication = mode === 'create'
+      ? createEventBindingV3(snapshot, eventOwner.value, binding)
+      : updateEventBindingV3(snapshot, eventOwner.value, binding)
+    commitEventApplication(nextApplication)
+    setSaveState('事件配置已应用，草稿待保存')
+    return null
+  } catch (reason) {
+    return reason instanceof Error ? reason.message : '事件配置应用失败'
+  }
+}
+
+function deleteEventBinding(eventId: string): string | null {
+  if (!eventOwner.value) return '事件 owner 不存在'
+  try {
+    const nextApplication = deleteEventBindingV3(currentApplicationSnapshot(), eventOwner.value, eventId)
+    commitEventApplication(nextApplication)
+    setSaveState('事件已删除，草稿待保存')
+    return null
+  } catch (reason) {
+    return reason instanceof Error ? reason.message : '事件删除失败'
+  }
+}
+
+function moveDesignerPage(payload: { pageId: string; direction: -1 | 1 }) {
+  exitPreviewForPageStructure()
+  try {
+    const snapshot = currentApplicationSnapshot()
+    const ids = snapshot.pages.map((page) => page.id)
+    const from = ids.indexOf(payload.pageId)
+    const to = from + payload.direction
+    if (from < 0 || to < 0 || to >= ids.length) return
+    ;[ids[from], ids[to]] = [ids[to], ids[from]]
+    const application = reorderPagesV3(snapshot, ids)
+    activatePage(application, payload.pageId)
+    setSaveState('页面顺序已调整，草稿待保存')
+  } catch (reason) {
+    setSaveState(reason instanceof Error ? reason.message : '页面排序失败')
+  }
+}
+
+function setDesignerDefaultPage(pageId: string) {
+  exitPreviewForPageStructure()
+  try {
+    dashboardApplication.value = setDefaultPageV3(currentApplicationSnapshot(), pageId)
+    setSaveState('默认页已更新，草稿待保存')
+  } catch (reason) {
+    setSaveState(reason instanceof Error ? reason.message : '默认页设置失败')
+  }
 }
 
 function saveDashboard() {
@@ -991,6 +1293,7 @@ async function importDashboard(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  if (!guardEventDraft()) { input.value = ''; return }
   try {
     const result = importDashboardApplicationV3(await file.text())
     if (!result.application || !result.report.success) {
@@ -1006,7 +1309,23 @@ async function importDashboard(event: Event) {
 }
 
 function markDirty() {
+  if (previewMode.value) previewRuntime.invalidate()
   setSaveState('有未保存修改')
+}
+
+async function togglePreview() {
+  if (previewMode.value) {
+    previewRuntime.stop()
+    previewMode.value = false
+    return
+  }
+  previewMode.value = true
+  await previewRuntime.start()
+}
+
+function handleComponentClick(componentId: string) {
+  if (previewMode.value) void previewRuntime.componentClick(componentId)
+  else selectedId.value = componentId
 }
 
 function setSaveState(message: string) {
@@ -1061,6 +1380,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  cleanupDesignerRuntimeState()
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('pointermove', handlePointerMove)
   stopPanelResize()
@@ -1078,10 +1398,12 @@ onBeforeUnmount(() => {
         <input ref="importInput" class="visually-hidden" type="file" accept="application/json,.json" @change="importDashboard" />
         <button type="button" @click="openImport"><IconFileImport :size="17" />导入</button>
         <button type="button" @click="exportDashboard"><IconFileExport :size="17" />导出</button>
-        <button type="button" @click="previewMode = !previewMode"><component :is="previewMode ? IconEyeOff : IconEye" :size="17" />{{ previewMode ? '退出预览' : '预览' }}</button>
+        <button type="button" @click="togglePreview"><component :is="previewMode ? IconEyeOff : IconEye" :size="17" />{{ previewMode ? '退出预览' : '预览' }}</button>
         <button class="primary-action" type="button" @click="saveDashboard"><IconDeviceFloppy :size="17" />保存</button>
       </div>
     </header>
+    <p class="visually-hidden" role="status" aria-live="polite" :data-runtime-state="previewStatus.state">{{ previewStatus.message }}</p>
+    <div v-if="previewMode && previewStatus.state !== 'idle'" class="runtime-event-status" :class="`is-${previewStatus.state}`" :role="previewStatus.state === 'failed' || previewStatus.state === 'partial' ? 'alert' : 'status'">{{ previewStatus.message }}</div>
 
     <main class="designer-workspace" :style="workspaceStyle">
       <aside class="component-panel" aria-label="组件库">
@@ -1100,7 +1422,20 @@ onBeforeUnmount(() => {
       </aside>
 
       <section class="canvas-stage" aria-label="看板画布">
-        <div v-if="activePageControls.length" class="parameter-control-runtime" aria-label="运行时筛选条件">
+        <div class="canvas-session-bars">
+          <PageManagerPanel
+            :pages="pageListItems"
+            :active-page-id="activePageId"
+            :default-page-id="dashboardApplication.defaultPageId"
+            :create-page="createDesignerPage"
+            :copy-page="copyDesignerPage"
+            @select="switchDesignerPage"
+            @delete="deleteDesignerPage"
+            @move="moveDesignerPage"
+            @set-default="setDesignerDefaultPage"
+            @configure-events="openPageEventConfig"
+          />
+          <div v-if="activePageControls.length" class="parameter-control-runtime" aria-label="运行时筛选条件">
           <section v-for="control in activePageControls" :key="control.id" class="runtime-control-card">
             <template v-for="parameterId in control.parameterIds" :key="parameterId">
               <label v-if="parameterFor(parameterId)" class="runtime-control-field">
@@ -1116,13 +1451,14 @@ onBeforeUnmount(() => {
             </template>
             <div class="runtime-control-actions"><button v-if="control.interaction.submitMode === 'manual'" type="button" @click="submitControl(control)">应用</button><button v-if="control.interaction.clearable" type="button" @click="clearControl(control)">清空</button></div>
           </section>
+          </div>
         </div>
         <div class="canvas-meta"><div><IconLayoutDashboard :size="16" />{{ dashboard.name }} <span>/</span><b>{{ previewMode ? '预览模式' : '设计模式' }}</b></div><div class="canvas-meta-actions"><button type="button" @click="selectCanvas"><IconSettings :size="14" />画布设置</button><button type="button" @click="activeTab = 'advanced'"><IconCode :size="14" />看板 JSON</button></div></div>
         <div class="artboard-wrap">
           <div class="artboard interactive-artboard" :style="{ width: `${artboardWidth}px` }">
             <div class="artboard-heading" :style="{ textAlign: dashboard.titleStyle.align }"><div><small>HOSPITAL OPERATIONS</small><h2 v-if="dashboard.titleStyle.show" :style="{ fontSize: `${dashboard.titleStyle.fontSize}px`, color: dashboard.titleStyle.color, fontWeight: dashboard.titleStyle.fontWeight }">{{ dashboard.name }}</h2></div><span>Mock + PostgreSQL / Greenplum · 保存后可恢复</span></div>
             <div ref="canvasElement" class="interactive-canvas" :class="{ 'grid-hidden': !dashboard.canvas.showGrid }" :style="canvasBackground" @dragover.prevent @drop.prevent="handleDrop" @click.self="selectCanvas">
-              <article v-for="component in components" :key="component.id" class="design-component" :class="{ 'is-selected': component.id === selectedId && !previewMode }" :data-component-id="component.id" :style="componentStyle(component)" @pointerdown="!previewMode && startPointer($event, component, 'move')" @click.stop="!previewMode && (selectedId = component.id)">
+              <article v-for="component in components" :key="component.id" class="design-component" :class="{ 'is-selected': component.id === selectedId && !previewMode }" :data-component-id="component.id" :style="componentStyle(component)" @pointerdown="!previewMode && startPointer($event, component, 'move')" @click.stop="handleComponentClick(component.id)">
                 <div v-if="component.id === selectedId && !previewMode" class="selection-label">当前选中</div>
                 <button v-if="!previewMode && component.styleConfig.titleVisible" class="widget-grip" type="button" aria-label="移动组件"><IconGripVertical :size="16" /></button>
                 <div v-if="component.styleConfig.titleVisible" class="design-component-header" :class="{ 'preview-title': previewMode }"><span :style="{ color: component.styleConfig.titleColor, fontSize: `${component.styleConfig.titleSize}px`, fontWeight: component.styleConfig.titleWeight }">{{ component.title }}</span><IconDots v-if="!previewMode" :size="17" /></div>
@@ -1169,7 +1505,7 @@ onBeforeUnmount(() => {
             </template>
           </section>
           <section v-else-if="activeTab === 'style'" class="property-section"><h3><span>01</span>标题与容器</h3><label>组件标题<input v-model="selected.title" @input="markDirty" /></label><div class="switch-row"><span>显示组件标题</span><input v-model="selected.styleConfig.titleVisible" type="checkbox" @change="markDirty" /></div><div class="number-pair"><label>标题字号<input v-model.number="selected.styleConfig.titleSize" type="number" min="8" max="48" @change="markDirty" /></label><label>标题粗细<select v-model.number="selected.styleConfig.titleWeight" @change="markDirty"><option :value="400">常规</option><option :value="600">半粗</option><option :value="700">粗体</option></select></label></div><div class="color-row"><label>标题色<input v-model="selected.styleConfig.titleColor" type="color" @input="markDirty" /></label><label>背景色<input v-model="selected.styleConfig.background" type="color" @input="markDirty" /></label></div><template v-if="isChart(selected.type) && selected.analysisConfig"><h3><span>02</span>坐标轴与标签</h3><div class="axis-config-block"><b>{{ selected.type === 'scatter' || selected.type === 'bubble' ? 'X 轴' : '左 Y 轴' }}</b><div class="analysis-grid"><label>轴标题<input v-model="selected.analysisConfig.leftAxisTitle" placeholder="可选" @input="markDirty" /></label><label>单位<input v-model="selected.analysisConfig.leftAxisUnit" placeholder="万元、人次" @input="markDirty" /></label><label>坐标轴颜色<input v-model="selected.analysisConfig.leftAxisColor" type="color" @input="markDirty" /></label><span></span></div></div><div class="axis-config-block"><b>{{ selected.type === 'scatter' || selected.type === 'bubble' ? 'Y 轴' : '右 Y 轴' }}</b><div class="analysis-grid"><label>轴标题<input v-model="selected.analysisConfig.rightAxisTitle" placeholder="可选" @input="markDirty" /></label><label>单位<input v-model="selected.analysisConfig.rightAxisUnit" placeholder="%、天" @input="markDirty" /></label><span></span><span></span></div></div><div v-if="selected.type === 'scatter' || selected.type === 'bubble'" class="analysis-grid"><label>X 轴最小<input v-model.number="selected.analysisConfig.xMin" type="number" placeholder="自动" @change="markDirty" /></label><label>X 轴最大<input v-model.number="selected.analysisConfig.xMax" type="number" placeholder="自动" @change="markDirty" /></label><label>Y 轴最小<input v-model.number="selected.analysisConfig.yLeftMin" type="number" placeholder="自动" @change="markDirty" /></label><label>Y 轴最大<input v-model.number="selected.analysisConfig.yLeftMax" type="number" placeholder="自动" @change="markDirty" /></label></div><div v-else class="analysis-grid"><label>左轴最小<input v-model.number="selected.analysisConfig.yLeftMin" type="number" placeholder="自动" @change="markDirty" /></label><label>左轴最大<input v-model.number="selected.analysisConfig.yLeftMax" type="number" placeholder="自动" @change="markDirty" /></label><label>右轴最小<input v-model.number="selected.analysisConfig.yRightMin" type="number" placeholder="自动" @change="markDirty" /></label><label>右轴最大<input v-model.number="selected.analysisConfig.yRightMax" type="number" placeholder="自动" @change="markDirty" /></label></div><template v-if="(selected.type === 'combo' || selected.dataConfig.measures.length > 1) && selected.type !== 'bubble' && selected.type !== 'scatter'"><div class="series-style-labels"><div v-for="(measure, index) in selected.dataConfig.measures" :key="`label-${measure.field}`" class="series-style-card"><b>{{ measure.alias || measure.field || `指标 ${index + 1}` }}</b><div class="switch-row"><span>显示标签</span><input v-model="measure.labelConfig!.show" type="checkbox" @change="markDirty" /></div><div class="switch-row"><span>显示分类名</span><input v-model="measure.labelConfig!.showCategory" type="checkbox" @change="markDirty" /></div><div class="switch-row"><span>显示系列名</span><input v-model="measure.labelConfig!.showSeries" type="checkbox" @change="markDirty" /></div><label>值显示形式<select v-model="measure.labelConfig!.mode" @change="markDirty"><option value="value">数值</option><option value="percentage">百分比</option><option value="both">数值 + 百分比</option></select></label><div class="number-pair"><label>单位<input v-model="measure.labelConfig!.unit" @input="markDirty" /></label><label>小数位<input v-model.number="measure.labelConfig!.decimals" type="number" min="0" max="6" @change="markDirty" /></label></div></div></div></template><template v-else><div class="switch-row"><span>显示数据标签</span><input v-model="selected.analysisConfig.showLabels" type="checkbox" @change="markDirty" /></div><div class="switch-row"><span>显示分类名</span><input v-model="selected.analysisConfig.labelShowCategory" type="checkbox" @change="markDirty" /></div><template v-if="selected.type === 'bubble'"><div class="series-style-labels bubble-labels"><div v-for="(measure, index) in selected.dataConfig.measures.slice(0, 3)" :key="`bubble-label-${measure.field}`" class="series-style-card"><b>{{ ['X 轴值', 'Y 轴值', '气泡大小'][index] }} · {{ measure.alias || measure.field }}</b><div class="switch-row"><span>显示该值</span><input v-model="measure.labelConfig!.show" type="checkbox" @change="markDirty" /></div><label>显示形式<select v-model="measure.labelConfig!.mode" @change="markDirty"><option value="value">数值</option><option value="percentage">百分比</option><option value="both">数值 + 百分比</option></select></label><div class="number-pair"><label>单位<input v-model="measure.labelConfig!.unit" @input="markDirty" /></label><label>小数位<input v-model.number="measure.labelConfig!.decimals" type="number" min="0" max="6" @change="markDirty" /></label></div></div></div></template><template v-else><div class="switch-row"><span>显示系列名</span><input v-model="selected.analysisConfig.labelShowSeries" type="checkbox" @change="markDirty" /></div><div class="number-pair"><label>小数位<input v-model.number="selected.analysisConfig.labelDecimals" type="number" min="0" max="6" @change="markDirty" /></label><label>标签位置<select v-model="selected.analysisConfig.labelPosition" @change="markDirty"><option value="top">顶部</option><option value="inside">内部</option><option value="outside">外部</option></select></label></div><label>标签单位<input v-model="selected.analysisConfig.labelUnit" placeholder="留空则使用指标单位" @input="markDirty" /></label><label>值显示形式<select v-model="selected.analysisConfig.labelMode" @change="markDirty"><option value="value">数值</option><option value="percentage">百分比</option><option value="both">数值 + 百分比</option></select></label></template></template><div class="legend-config"><h3><span>03</span>图例</h3><div class="switch-row"><span>显示图例</span><input v-model="selected.analysisConfig.legendVisible" type="checkbox" @change="markDirty" /></div><label v-if="selected.analysisConfig.legendVisible">图例位置<select v-model="selected.analysisConfig.legendPosition" @change="markDirty"><option value="top">顶部</option><option value="left">左侧</option><option value="right">右侧</option><option value="bottom">下方</option></select></label></div><div class="warning-heading"><b>预警线</b><button type="button" @click="addWarningLine"><IconPlus :size="13" />添加</button></div><div v-for="(line, index) in selected.analysisConfig.warningLines" :key="line.id" class="warning-row dynamic"><select v-model="line.axis" title="预警线方向" @change="markDirty"><option value="x">X 轴</option><option value="y">Y 轴</option></select><select v-model="line.source" @change="markDirty"><option value="fixed">固定值</option><option value="average">平均值</option><option value="min">最小值</option><option value="max">最大值</option><option value="median">中位数</option><option value="percentile">百分位</option><option value="measure">指标平均值</option><option v-if="line.axis === 'y'" value="target">目标值字段（动态曲线）</option></select><input v-if="line.source === 'fixed'" v-model.number="line.value" type="number" @change="markDirty" /><input v-else-if="line.source === 'percentile'" v-model.number="line.percentile" type="number" min="0" max="100" @change="markDirty" /><select v-else-if="line.source === 'measure' || line.source === 'target'" v-model="line.measureField" @change="markDirty"><option v-for="measure in selected.dataConfig.measures" :key="measure.field" :value="measure.field">{{ measure.alias || measure.field }}</option></select><span v-else>自动计算</span><select v-if="line.axis === 'y'" v-model="line.axisSide" title="预警线轴"><option value="left">左轴</option><option value="right">右轴</option></select><select v-model="line.lineStyle" title="线型"><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select><input v-model="line.label" @input="markDirty" /><input v-model="line.color" type="color" @input="markDirty" /><button type="button" @click="removeWarningLine(index)">×</button></div></template><template v-if="isKpi(selected.type) && selected.kpiConfig"><h3><span>02</span>指标卡配置</h3><label>主指标字段<select v-model="selected.kpiConfig.primaryMeasureField" @change="markDirty"><option v-for="field in fieldsFor(selected).filter((item) => item.type === 'number')" :key="field.name" :value="field.name">{{ field.label }}</option></select></label><div class="number-pair"><label>单位<input v-model="selected.kpiConfig.unit" placeholder="万元、人次、%" @input="markDirty" /></label><label>小数位<input v-model.number="selected.kpiConfig.decimals" type="number" min="0" max="6" @change="markDirty" /></label></div><div class="switch-row"><span>使用千分位</span><input v-model="selected.kpiConfig.useGrouping" type="checkbox" @change="markDirty" /></div><div class="number-pair"><label>同比基准字段<select v-model="selected.kpiConfig.yoyField" @change="markDirty"><option value="">不显示</option><option v-for="field in fieldsFor(selected)" :key="field.name" :value="field.name">{{ field.label }}</option></select></label><label>环比基准字段<select v-model="selected.kpiConfig.momField" @change="markDirty"><option value="">不显示</option><option v-for="field in fieldsFor(selected)" :key="field.name" :value="field.name">{{ field.label }}</option></select></label></div><div class="color-row"><label>上升颜色<input v-model="selected.kpiConfig.positiveColor" type="color" @input="markDirty" /></label><label>下降颜色<input v-model="selected.kpiConfig.negativeColor" type="color" @input="markDirty" /></label></div><div class="switch-row"><span>显示目标进度条</span><input v-model="selected.kpiConfig.showProgress" type="checkbox" @change="markDirty" /></div><template v-if="selected.kpiConfig.showProgress"><label>目标来源<select v-model="selected.kpiConfig.targetMode" @change="markDirty"><option value="fixed">固定目标</option><option value="field">目标字段</option></select></label><label v-if="selected.kpiConfig.targetMode === 'fixed'">目标值<input v-model.number="selected.kpiConfig.targetValue" type="number" @change="markDirty" /></label><label v-else>目标字段<select v-model="selected.kpiConfig.targetField" @change="markDirty"><option v-for="field in fieldsFor(selected)" :key="field.name" :value="field.name">{{ field.label }}</option></select></label><label>进度颜色<input v-model="selected.kpiConfig.progressColor" type="color" @input="markDirty" /></label></template></template><template v-if="selected.type === 'table' && selected.tableConfig"><h3><span>02</span>表格专属配置</h3><div class="switch-row"><span>显示表头</span><input v-model="selected.tableConfig.showHeader" type="checkbox" @change="markDirty" /></div><div class="switch-row"><span>斑马纹</span><input v-model="selected.tableConfig.striped" type="checkbox" @change="markDirty" /></div><div v-for="column in selected.tableConfig.columns" :key="column.field" class="table-column-config"><input v-model="column.label" placeholder="列名" @input="markDirty" /><input v-model.number="column.width" type="number" min="60" max="600" title="列宽" @change="markDirty" /><select v-model="column.format" title="格式" @change="markDirty"><option value="auto">自动</option><option value="number">数值</option><option value="percentage">百分比</option><option value="date">日期</option></select><select v-model="column.summary" title="汇总" @change="markDirty"><option value="none">不汇总</option><option value="sum">合计</option><option value="avg">平均</option><option value="count">计数</option></select></div></template></section>
-          <div v-else-if="activeTab === 'interaction'" class="reserved-state"><IconSettings :size="28" /><b>交互能力已预留</b><span>组件联动与页面跳转将在 V2 实现。</span></div>
+          <div v-else-if="activeTab === 'interaction'" class="reserved-state"><IconSettings :size="28" /><b>受控事件配置</b><span>设计模式仅配置事件；进入预览后执行允许的事件、条件与动作。</span><button type="button" @click="openComponentEventConfig">配置组件事件</button></div>
           <section v-else-if="activeTab === 'layout'" class="property-section"><h3><span>01</span>位置与尺寸</h3><div class="layout-fields editable"><label>X<input v-model.number="selected.position.x" type="number" @change="normalizeSelected" /></label><label>Y<input v-model.number="selected.position.y" type="number" @change="normalizeSelected" /></label><label>W<input v-model.number="selected.position.width" type="number" @change="normalizeSelected" /></label><label>H<input v-model.number="selected.position.height" type="number" @change="normalizeSelected" /></label></div><p>选中组件后可使用四角和四边中心共 8 个缩放手柄。</p></section>
           <section v-else class="property-section json-section"><h3><span>01</span>组件复用</h3><div class="medical-template-registration"><label class="template-checkbox"><input type="checkbox" :checked="Boolean(selectedMedicalTemplate)" @change="registerSelectedMedical($event)" /><span>转为医疗业务组件，可在其他看板复用</span></label><template v-if="selectedMedicalTemplate"><label>组件分类<input :value="selectedMedicalTemplate.category" placeholder="例如：门诊运营、收入分析" @change="updateMedicalCategory(($event.target as HTMLInputElement).value)" /></label><button type="button" @click="updateSelectedMedicalTemplate">更新当前配置到组件库</button></template></div><h3><span>02</span>组件 JSON</h3><pre>{{ selectedJson }}</pre><details><summary>查看完整看板 JSON</summary><pre>{{ dashboardJson }}</pre></details></section>
         </div>
@@ -1185,6 +1521,20 @@ onBeforeUnmount(() => {
       </aside>
     </main>
     <DatasetCatalog v-if="datasetCatalogOpen" :current-id="selected?.dataConfig.datasetId" @choose="chooseServerDataset" @close="datasetCatalogOpen = false" />
+    <EventConfigPanel
+      v-if="eventOwner"
+      ref="eventPanel"
+      :owner="eventOwner"
+      :events="eventOwnerEvents"
+      :parameters="dashboardApplication.parameters"
+      :components="eventOwnerComponents"
+      :authorable-events="eventOwnerAuthorableEvents"
+      :field-capabilities="eventFieldCapabilities"
+      :inspect-binding="inspectEventBinding"
+      :apply-binding="applyEventBinding"
+      :delete-binding="deleteEventBinding"
+      @close="eventOwner = null"
+    />
   </div>
 </template>
 

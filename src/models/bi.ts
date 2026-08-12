@@ -34,6 +34,22 @@ export interface ParameterDefinition {
   defaultValue?: unknown
 }
 
+export type DatasetQueryParameterTypeV3 = 'string' | 'number' | 'date' | 'dateRange' | 'singleSelect' | 'multiSelect'
+export type DatasetParameterOperatorV3 = 'eq' | 'in' | 'between'
+export type DatasetParameterEmptyPolicyV3 = 'omit' | 'null' | 'emptyString' | 'reject'
+
+export interface DatasetQueryParameterV3 {
+  id: string
+  code: string
+  name: string
+  type: DatasetQueryParameterTypeV3
+  required: boolean
+  sqlName: string
+  operator: DatasetParameterOperatorV3
+  defaultValue?: unknown
+  emptyPolicy: DatasetParameterEmptyPolicyV3
+}
+
 export interface DatasetModelV2 {
   version: 2
   id: string
@@ -103,6 +119,21 @@ export interface ComponentDataConfigV2 {
   sort: SortBinding[]
   limit: number
 }
+
+export interface DatasetParameterBindingV3 {
+  datasetParameterCode: string
+  parameterId: string
+}
+
+export type ComponentRefreshPolicyV3 = 'onParameterChange' | 'manual' | 'onPageEnter'
+
+export interface ComponentDataConfigV3 extends Omit<ComponentDataConfigV2, 'version'> {
+  version: 3
+  parameterBindings: DatasetParameterBindingV3[]
+  refreshPolicy: ComponentRefreshPolicyV3
+}
+
+export type ComponentDataConfig = ComponentDataConfigV2 | ComponentDataConfigV3
 
 export interface QueryResultField {
   name: string

@@ -1,0 +1,69 @@
+{
+  "version": 3,
+  "id": "dashboard-phase9-example",
+  "name": "Phase9 预览事件示例",
+  "description": "脱敏示例：仅包含预览事件、参数与虚构数据集标识，不含连接信息或凭据。",
+  "defaultPageId": "page-home",
+  "parameters": [{
+    "id": "parameter-year", "code": "year_code", "name": "年度", "type": "singleSelect", "scope": "application", "required": true, "defaultValue": "2026",
+    "source": { "kind": "static", "options": [{ "label": "2025", "value": "2025" }, { "label": "2026", "value": "2026" }] }, "aliases": ["year"]
+  }],
+  "pages": [
+    {
+      "id": "page-home", "name": "事件首页", "code": "home", "order": 1, "type": "standard",
+      "canvas": { "width": 1200, "height": 700, "background": "#f7f9fb", "showGrid": true, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 24, "color": "#243447", "fontWeight": 700, "align": "left" },
+      "controls": [],
+      "components": [
+        {
+          "id": "component-set-parameter", "type": "table", "title": "点击切换年度", "position": { "x": 20, "y": 20, "width": 210, "height": 150, "zIndex": 1 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-trigger", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "manual" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+          "events": [{ "id": "event-set-year", "enabled": true, "event": "click", "actions": [{ "id": "action-set-year", "type": "setParameter", "assignments": [{ "parameterId": "parameter-year", "value": { "kind": "fixed", "value": "2025" } }] }] }]
+        },
+        {
+          "id": "component-page-refresh", "type": "table", "title": "刷新本页全部", "position": { "x": 250, "y": 20, "width": 210, "height": 150, "zIndex": 2 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-page-trigger", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "manual" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+          "events": [{ "id": "event-page-refresh", "enabled": true, "event": "click", "actions": [{ "id": "action-page-refresh", "type": "refresh", "target": { "kind": "page", "pageId": "page-home" } }] }]
+        },
+        {
+          "id": "component-one-refresh", "type": "table", "title": "仅刷新收入", "position": { "x": 480, "y": 20, "width": 210, "height": 150, "zIndex": 3 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-component-trigger", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "manual" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+          "events": [{ "id": "event-component-refresh", "enabled": true, "event": "click", "actions": [{ "id": "action-component-refresh", "type": "refresh", "target": { "kind": "components", "componentIds": ["component-income"] } }] }]
+        },
+        {
+          "id": "component-income", "type": "table", "title": "年度收入", "position": { "x": 20, "y": 190, "width": 520, "height": 300, "zIndex": 4 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-income", "dimensions": [{ "field": "month", "role": "category" }], "measures": [{ "field": "amount", "aggregation": "sum", "axis": "left" }], "filters": [], "sort": [], "limit": 200, "parameterBindings": [{ "datasetParameterCode": "year_code", "parameterId": "parameter-year" }], "refreshPolicy": "onParameterChange" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true }
+        },
+        {
+          "id": "component-entry", "type": "table", "title": "入页数据", "position": { "x": 560, "y": 190, "width": 280, "height": 220, "zIndex": 5 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-entry", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "onPageEnter" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true }
+        },
+        {
+          "id": "component-partial-failure", "type": "table", "title": "允许部分失败", "position": { "x": 860, "y": 190, "width": 280, "height": 220, "zIndex": 6 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-failure", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "manual" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true }
+        }
+      ],
+      "pageEvents": [{ "id": "event-page-enter", "enabled": true, "event": "pageEnter", "actions": [{ "id": "action-entry-refresh", "type": "refresh", "target": { "kind": "components", "componentIds": ["component-entry"] } }] }]
+    },
+    {
+      "id": "page-other", "name": "其他页面", "code": "other", "order": 2, "type": "standard",
+      "canvas": { "width": 1200, "height": 700, "background": "#f7f9fb", "showGrid": true, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 24, "color": "#243447", "fontWeight": 700, "align": "left" }, "controls": [],
+      "components": [{
+        "id": "component-other-page", "type": "table", "title": "其他页数据", "position": { "x": 20, "y": 20, "width": 320, "height": 220, "zIndex": 1 },
+        "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-other", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 20, "parameterBindings": [], "refreshPolicy": "onPageEnter" },
+        "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true }
+      }], "pageEvents": []
+    }
+  ],
+  "theme": { "id": "medical-light", "tokens": {} },
+  "runtimePolicy": { "previewScaleMode": "width", "allowScroll": true, "parameterPersistence": "session", "maxEventDepth": 10 },
+  "extensionRefs": {}, "publishConfig": { "status": "draft", "entryPageId": "page-home", "access": "private" },
+  "createdAt": "2026-08-10T00:00:00.000Z", "updatedAt": "2026-08-10T00:00:00.000Z"
+}

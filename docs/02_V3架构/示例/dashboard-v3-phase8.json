@@ -1,0 +1,102 @@
+{
+  "version": 3,
+  "id": "dashboard-phase8-example",
+  "name": "Phase8 参数运行时示例",
+  "description": "脱敏示例：参数定义、筛选控件和组件数据集参数绑定。运行值与缓存不写入本文件。",
+  "defaultPageId": "page-home",
+  "parameters": [
+    {
+      "id": "parameter-year",
+      "code": "year_code",
+      "name": "年度",
+      "type": "singleSelect",
+      "scope": "application",
+      "required": true,
+      "defaultValue": "2026",
+      "source": {
+        "kind": "static",
+        "options": [
+          { "label": "2025", "value": "2025" },
+          { "label": "2026", "value": "2026" }
+        ]
+      },
+      "aliases": ["year"]
+    }
+  ],
+  "pages": [
+    {
+      "id": "page-home",
+      "name": "首页",
+      "code": "home",
+      "order": 1,
+      "type": "standard",
+      "canvas": {
+        "width": 1200,
+        "height": 600,
+        "background": "#f7f9fb",
+        "showGrid": true,
+        "gridSize": 12
+      },
+      "titleStyle": {
+        "show": true,
+        "fontSize": 24,
+        "color": "#243447",
+        "fontWeight": 700,
+        "align": "left"
+      },
+      "controls": [
+        {
+          "id": "control-year",
+          "type": "buttonGroup",
+          "parameterIds": ["parameter-year"],
+          "position": { "x": 24, "y": 16, "width": 260, "height": 48, "zIndex": 1 },
+          "styleConfig": {},
+          "interaction": { "submitMode": "immediate", "clearable": false }
+        }
+      ],
+      "components": [
+        {
+          "id": "component-income",
+          "type": "line",
+          "title": "年度收入趋势",
+          "position": { "x": 24, "y": 80, "width": 520, "height": 320, "zIndex": 1 },
+          "dataConfig": {
+            "version": 3,
+            "sourceKind": "server",
+            "datasetId": "dataset-income-example",
+            "dimensions": [{ "field": "month_code", "role": "category", "sort": "asc" }],
+            "measures": [{ "field": "amount", "aggregation": "sum", "unit": "万元", "chartType": "line", "axis": "left" }],
+            "filters": [],
+            "sort": [],
+            "limit": 200,
+            "parameterBindings": [{ "datasetParameterCode": "year_code", "parameterId": "parameter-year" }],
+            "refreshPolicy": "onParameterChange"
+          },
+          "styleConfig": {
+            "background": "#ffffff",
+            "titleColor": "#243447",
+            "titleSize": 14,
+            "titleWeight": 650,
+            "titleVisible": true
+          }
+        }
+      ],
+      "pageEvents": []
+    }
+  ],
+  "theme": { "id": "medical-light", "tokens": {} },
+  "runtimePolicy": {
+    "previewScaleMode": "width",
+    "allowScroll": true,
+    "parameterPersistence": "session",
+    "maxEventDepth": 10
+  },
+  "extensionRefs": {},
+  "publishConfig": {
+    "status": "draft",
+    "entryPageId": "page-home",
+    "access": "private"
+  },
+  "createdAt": "2026-08-03T00:00:00.000Z",
+  "updatedAt": "2026-08-03T00:00:00.000Z"
+}

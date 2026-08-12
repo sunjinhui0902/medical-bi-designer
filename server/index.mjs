@@ -8,6 +8,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
+import {
+  applyDatasetParametersToRows,
+  compileDatasetParameterizedQuery,
+  normalizeDatasetQueryParameters,
+  validateDatasetExecutionRequest,
+  validateDatasetQueryParameters,
+} from './query-parameters.mjs'
+import { applyDatasetRuntimeView, compileDatasetRuntimeQuery } from './query-plan.mjs'
 
 const { Pool } = pg
 const execFileAsync = promisify(execFile)
@@ -156,6 +164,10 @@ createServer(async (request, response) => {
         createdAt: previous?.createdAt || now,
         updatedAt: now,
       })
+      const parameterIssues = validateDatasetQueryParameters(saved.parameters, saved.fields.map((field) => field.name))
+      if (parameterIssues.length) {
+        throw clientError(400, parameterIssues.map((issue) => `${issue.path}：${issue.message}`).join('；'))
+      }
       await writeJson(datasetFile, [...datasets.filter((item) => item.id !== id), saved])
       return json(response, 201, saved)
     }
@@ -187,10 +199,14 @@ createServer(async (request, response) => {
 
     const executeMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)\/execute$/)
     if (request.method === 'POST' && executeMatch) {
-      const datasets = await readJson(datasetFile, [])
+      const body = await readBody(request)
+      let executionRequest
+      try { executionRequest = validateDatasetExecutionRequest(body) }
+      catch (error) { throw clientError(400, error.message) }
+      const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
       const dataset = datasets.find((item) => item.id === decodeURIComponent(executeMatch[1]))
       if (!dataset) throw clientError(404, '数据集不存在')
-      return json(response, 200, await previewQuery(dataset.dataSourceId, dataset.sql, maxRows))
+      return json(response, 200, await executeDatasetQuery(dataset, executionRequest.parameters, executionRequest.limit, executionRequest.view))
     }
 
     return json(response, 404, { error: '接口不存在' })
@@ -310,7 +326,7 @@ function normalizeDataset(value) {
         metric: field.metric && typeof field.metric === 'object' ? field.metric : undefined,
       }
     }).filter((field) => field.name),
-    parameters: Array.isArray(value.parameters) ? value.parameters : [],
+    parameters: normalizeDatasetQueryParameters(value.parameters),
     createdBy: String(value.createdBy || 'local-developer'),
     createdAt: value.createdAt || value.updatedAt || now,
     updatedAt: value.updatedAt || now,
@@ -406,6 +422,62 @@ async function previewQuery(dataSourceId, sql, requestedLimit) {
       durationMs: Date.now() - started,
       limited: result.rowCount === limit,
       source: source.id,
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw clientError(400, `SQL 执行失败：${error.message}`)
+  } finally {
+    client.release()
+    await pool.end()
+  }
+}
+
+async function executeDatasetQuery(dataset, parameterValues, requestedLimit, view) {
+  const safeSql = validateReadOnlySql(dataset.sql)
+  let plan
+  try {
+    const safeDataset = { ...dataset, sql: safeSql }
+    const values = parameterValues && typeof parameterValues === 'object' ? parameterValues : {}
+    plan = compileDatasetRuntimeQuery(safeDataset, values, view, requestedLimit)
+      ?? compileDatasetParameterizedQuery(safeDataset, values, Math.min(Number(requestedLimit) || maxRows, maxRows))
+  } catch (error) {
+    throw clientError(400, `查询参数无效：${error.message}`)
+  }
+  const source = await resolveSource(dataset.dataSourceId, {})
+  const started = Date.now()
+
+  if (source.mode === 'demo') {
+    const limit = plan.values.at(-1)
+    const filtered = applyDatasetParametersToRows(demoRowsFor(safeSql), plan)
+    const rows = plan.view ? applyDatasetRuntimeView(filtered, plan.view) : filtered.slice(0, limit)
+    return {
+      rows,
+      fields: inferFields(rows),
+      rowCount: rows.length,
+      durationMs: Date.now() - started,
+      limited: rows.length === limit,
+      source: source.id,
+      appliedParameters: plan.appliedParameters,
+      omittedParameters: plan.omittedParameters,
+    }
+  }
+
+  const pool = createPool(source)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN READ ONLY')
+    await client.query(`SELECT set_config('statement_timeout', '${timeoutMs}', true)`)
+    const result = await client.query(plan.text, plan.values)
+    await client.query('COMMIT')
+    return {
+      rows: result.rows,
+      fields: result.fields.map((field) => ({ name: field.name, type: postgresType(field.dataTypeID) })),
+      rowCount: result.rowCount,
+      durationMs: Date.now() - started,
+      limited: result.rowCount === plan.values.at(-1),
+      source: source.id,
+      appliedParameters: plan.appliedParameters,
+      omittedParameters: plan.omittedParameters,
     }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})

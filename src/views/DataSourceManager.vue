@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import {
-  IconArrowLeft, IconBolt, IconCheck, IconChevronRight, IconCode, IconDatabase,
+  IconArrowLeft, IconBolt, IconBraces, IconCheck, IconChevronRight, IconCode, IconDatabase,
   IconDeviceFloppy, IconEye, IconLock, IconPlus, IconRefresh, IconServer,
   IconShieldCheck, IconTable, IconX,
 } from '@tabler/icons-vue'
@@ -209,7 +209,7 @@ async function api(path: string, body?: unknown) {
         <div><b>医疗 BI Data Studio</b><small>Step 5 · PostgreSQL 验证链路</small></div>
       </div>
       <nav>
-        <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/datasets"><IconTable :size="16" />数据集 2.0</RouterLink>
+        <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/datasets"><IconTable :size="16" />数据集 2.0</RouterLink><RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink>
         <button type="button" :disabled="loading" @click="loadAll"><IconRefresh :size="16" />刷新</button>
       </nav>
     </header>

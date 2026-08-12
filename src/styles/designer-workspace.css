@@ -107,11 +107,12 @@ button, input { font: inherit; }
 .panel-footnote i { width: 6px; height: 6px; background: #f59f00; border-radius: 50%; }
 
 .canvas-stage {
-  display: grid; grid-template-rows: 42px minmax(0, 1fr); min-width: 0; min-height: 0;
+  display: grid; grid-template-rows: auto 42px minmax(0, 1fr); min-width: 0; min-height: 0;
   background: linear-gradient(rgba(74,91,108,.055) 1px, transparent 1px),
     linear-gradient(90deg, rgba(74,91,108,.055) 1px, transparent 1px), var(--stage);
   background-size: 22px 22px;
 }
+.canvas-session-bars { min-width: 0; max-height: 210px; overflow-y: auto; }
 .canvas-meta { display: flex; align-items: center; justify-content: space-between; padding: 0 17px; color: #6f7d8b; font-size: 10px; background: rgba(245,247,249,.92); border-bottom: 1px solid #d9e0e6; }
 .canvas-meta > div { gap: 7px; }
 .canvas-meta b { color: var(--brand); }

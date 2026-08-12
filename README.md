@@ -1,12 +1,30 @@
 # Medical BI Designer
 
-Medical BI Designer 是面向医疗运营分析场景的低代码 BI 设计器。当前 V2.0 可视化底座、V3 Phase7 应用模型、Phase8 参数运行时与 Phase9 多页面及事件基础均已完成本地验收。
+Medical BI Designer 是一个面向医疗运营分析场景的开源低代码 BI 设计器，目标是将数据源、数据集、指标体系、可视化组件、参数联动和 AI 辅助分析整合到统一的平台中。
+当前 V2.0 可视化底座、V3 Phase7 应用模型、Phase8 参数运行时与 Phase9 多页面及事件基础均已完成本地验收，后续将继续推进应用交互、发布治理和 AI Analytics 能力。
 
-## 公开访问与许可
+v0.1.0 is the first public Open Source release of Medical BI Designer, based on the existing V2.0 development baseline.
+v0.1.0 为 Medical BI Designer 的首个公开开源版本，基于现有 V2.0 开发基线发布。
 
-本仓库公开展示当前可访问的源码、脱敏示例、设计文档和验收材料，便于产品体验、技术评估与问题反馈。真实数据库配置、凭据、本地运行状态、内部 SQL 和医疗数据不属于公开内容。
+## Preview
 
-项目目前不是开源软件，采用 [保留全部权利](./LICENSE) 的源码可见模式。除适用法律或版权所有者书面授权外，公开访问不授予复制、修改、分发、再许可或创建衍生作品的权利。
+![Medical BI Designer](./docs/04_测试验证/截图/step5.1-真实数据集绑定验收截图.png)
+
+## 开源许可 / License
+
+Medical BI Designer is Open Source software licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+Medical BI Designer 是一个开源医疗低代码 BI 设计器，采用 GNU Affero General Public License v3.0（AGPL-3.0）开源许可证。
+本仓库公开提供项目源码、脱敏示例、设计文档和验收材料，欢迎开发者用于学习、研究、部署、改进和贡献。
+
+具体授权范围和义务请参阅 [LICENSE](./LICENSE)。
+
+Copyright (C) 2026 sunjinhui0902.
+
+## 数据与隐私边界
+
+为保护医疗数据安全，真实数据库凭据、患者数据、医院内部 SQL、生产环境配置及其他敏感资产不会包含在公开仓库中。
+公开仓库仅包含经过审查的源码、脱敏示例、开发文档、测试材料和可公开的配置示例。
 
 ## 已完成能力
 
@@ -21,6 +39,37 @@ Medical BI Designer 是面向医疗运营分析场景的低代码 BI 设计器�
 - 在服务端执行占位符条件、分组聚合、排序和限制，并按参数依赖定向刷新。
 - 合并同键并发请求，使用有界短期缓存并支持手工强制刷新。
 - 管理多页面并配置受控的 SetParameter、Refresh 事件，在设计器预览会话中安全执行。
+
+## Roadmap
+
+### v0.1.0 — Initial Open Source Release
+- PostgreSQL / Greenplum data source management
+- Dataset modeling
+- Field semantics
+- KPI cards
+- Common chart components
+- Dashboard canvas
+- Aggregation and sorting
+- Dashboard JSON import/export
+- Reusable healthcare BI components
+- Open Source repository governance
+
+### v0.2 — Interaction & Parameter System
+- Complete parameter system
+- Dashboard parameter interactions
+- Component linkage
+- Drill-down capabilities
+- Improved dashboard designer
+- Reusable dashboard templates
+- Expanded automated testing
+
+### v0.3 — AI Analytics
+- Natural-language-to-SQL prototype
+- AI-assisted metric analysis
+- Metadata understanding
+- Dataset semantic analysis
+- AI-assisted dashboard generation
+- Intelligent analytics workflows
 
 ## 快速启动
 
@@ -73,12 +122,7 @@ npm run dev
 - [AI 开发交接](./AI_Development_Handover.md)
 - [文档中心](./docs/README.md)
 
-## Release 与公开边界
+## Commercial Licensing
 
-当前仓库可以公开访问，但尚未发布正式 GitHub Release，也未采用开放源代码许可证。公开仓库只包含已审计的源码、脱敏示例、设计文档和验收材料：
-
-- [Release 准备任务](./docs/00_项目规划/Release准备任务.md)
-- [开源清单](./开源清单.md)
-- [私有资产清单](./私有资产清单.md)
-
-如未来需要允许第三方复用、修改或分发，应由项目所有者另行选择开放源代码许可证并完成对应 Release 签字。
+Medical BI Designer is currently released under the GNU Affero General Public License v3.0 (AGPL-3.0).
+Commercial licensing options may be offered in the future for organizations that require proprietary integration, redistribution, OEM usage, or other licensing arrangements that are not compatible with AGPL-3.0 requirements.

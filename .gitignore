@@ -13,3 +13,8 @@ docs/04_测试验证/固定验证数据库.md
 .step5-backup/
 playwright-report/
 test-results/
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks

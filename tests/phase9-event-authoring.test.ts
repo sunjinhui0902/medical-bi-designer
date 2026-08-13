@@ -106,15 +106,15 @@ test('P9.3 authorability makes over-policy legacy bindings fully read-only', () 
   assert.equal(source.pages[0].components[0].events?.[0].enabled, true)
 })
 
-test('P9.3 stale standard snapshot cannot modify or delete a real dialog binding', () => {
+test('P10.7 resolved dialog owner supports safe event authoring despite a stale page type snapshot', () => {
   const source = fixture()
   const existing = pageEvent()
   source.pages[0].pageEvents = [existing]
   source.pages[0].type = 'dialog'
   const stale = pageOwner()
-  assert.equal(inspectEventBindingAuthorabilityV3(source, stale, existing).readOnly, true)
-  assert.throws(() => updateEventBindingV3(source, stale, { ...existing, enabled: false }), /dialog/)
-  assert.throws(() => deleteEventBindingV3(source, stale, existing.id), /dialog/)
+  assert.equal(inspectEventBindingAuthorabilityV3(source, stale, existing).readOnly, false)
+  assert.equal(updateEventBindingV3(source, stale, { ...existing, enabled: false }).pages[0].pageEvents[0].enabled, false)
+  assert.equal(deleteEventBindingV3(source, stale, existing.id).pages[0].pageEvents.length, 0)
   assert.equal(source.pages[0].pageEvents[0].enabled, true)
 })
 

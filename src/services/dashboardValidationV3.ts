@@ -90,9 +90,29 @@ function fixedValueIssues(value: unknown): DashboardValidationIssueV3[] {
   return issues
 }
 
+function reservedInteractionStateIssues(value: unknown): DashboardValidationIssueV3[] {
+  const issues: DashboardValidationIssueV3[] = []
+  const visited = new Set<object>()
+  const domain = /(interaction|page|dialog|drill|linkage)/
+  const runtimeState = /(state|stack|runtime|session|geometry|epoch|revision|current|active)/
+  const visit = (current: unknown, path: string): void => {
+    if (!current || typeof current !== 'object' || visited.has(current)) return
+    visited.add(current)
+    if (Array.isArray(current)) { current.forEach((item, index) => visit(item, `${path}/${index}`)); return }
+    for (const [key, child] of Object.entries(current)) {
+      const normalized = key.toLowerCase()
+      if (domain.test(normalized) && runtimeState.test(normalized)) issues.push({ path: `${path}/${key}`, keyword: 'reservedInteractionState', message: 'extensionRefs 不得保存交互会话状态' })
+      visit(child, `${path}/${key}`)
+    }
+  }
+  visit(value, '/extensionRefs')
+  return issues
+}
+
 function semanticIssues(application: DashboardApplicationV3): DashboardValidationIssueV3[] {
   const issues: DashboardValidationIssueV3[] = []
   const pageIds = new Set(application.pages.map((page) => page.id))
+  const pageById = new Map(application.pages.map((page) => [page.id, page]))
   const pageCodes = new Set(application.pages.map((page) => page.code))
   const pageOrders = new Set(application.pages.map((page) => page.order))
 
@@ -102,6 +122,9 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
       keyword: 'reference',
       message: '必须指向 pages 中存在的页面',
     })
+  }
+  if (application.publishConfig && pageById.get(application.publishConfig.entryPageId)?.type !== 'standard') {
+    issues.push({ path: '/publishConfig/entryPageId', keyword: 'standardPageReference', message: '发布入口必须指向存在的 standard 页面' })
   }
   if (pageIds.size !== application.pages.length) {
     issues.push({
@@ -149,7 +172,26 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
   const componentPageIds = new Map<string, string>()
   const eventIds = new Set<string>()
   const actionIds = new Set<string>()
+  const declaredActionTypes = new Map<string, string>()
   const parameterIdSet = new Set(parameterIds)
+  const drillPathIds = new Set<string>()
+
+  for (const [pathIndex, drillPath] of (application.drillPaths ?? []).entries()) {
+    const path = `/drillPaths/${pathIndex}`
+    if (drillPathIds.has(drillPath.id)) issues.push({ path: `${path}/id`, keyword: 'uniqueDrillPathId', message: 'DrillPath ID 不能重复' })
+    drillPathIds.add(drillPath.id)
+    const levelIds = new Set<string>()
+    const levelParameterIds = new Set<string>()
+    drillPath.levels.forEach((level, levelIndex) => {
+      const levelPath = `${path}/levels/${levelIndex}`
+      if (levelIds.has(level.id)) issues.push({ path: `${levelPath}/id`, keyword: 'uniqueDrillLevelId', message: '同一 DrillPath 的层级 ID 不能重复' })
+      levelIds.add(level.id)
+      if (levelParameterIds.has(level.parameterId)) issues.push({ path: `${levelPath}/parameterId`, keyword: 'uniqueDrillParameterId', message: '同一 DrillPath 的层级参数不能重复' })
+      levelParameterIds.add(level.parameterId)
+      if (['__proto__', 'prototype', 'constructor'].includes(level.field)) issues.push({ path: `${levelPath}/field`, keyword: 'safeDrillField', message: 'DrillPath 层级字段包含危险名称' })
+      if (!parameterIdSet.has(level.parameterId)) issues.push({ path: `${levelPath}/parameterId`, keyword: 'parameterReference', message: `参数不存在：${level.parameterId}` })
+    })
+  }
 
   const validateValueExpression = (expression: ValueExpressionV3, path: string): void => {
     if (expression.kind === 'parameter' && !parameterIdSet.has(expression.parameterId)) {
@@ -157,7 +199,24 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
     }
   }
 
-  const validateEvents = (events: EventBindingV3[], path: string, ownerPageId: string): void => {
+  const validateAssignments = (assignments: Array<{ parameterId: string; value: ValueExpressionV3 }>, path: string): void => {
+    const seen = new Set<string>()
+    assignments.forEach((assignment, assignmentIndex) => {
+      const assignmentPath = `${path}/${assignmentIndex}`
+      if (seen.has(assignment.parameterId)) issues.push({ path: `${assignmentPath}/parameterId`, keyword: 'uniqueAssignment', message: '同一动作不能重复赋值同一参数' })
+      seen.add(assignment.parameterId)
+      if (!parameterIdSet.has(assignment.parameterId)) issues.push({ path: `${assignmentPath}/parameterId`, keyword: 'parameterReference', message: `参数不存在：${assignment.parameterId}` })
+      validateValueExpression(assignment.value, `${assignmentPath}/value`)
+    })
+  }
+
+  const validateCarryParameters = (parameterIds: string[] | undefined, path: string): void => {
+    parameterIds?.forEach((parameterId, parameterIndex) => {
+      if (!parameterIdSet.has(parameterId)) issues.push({ path: `${path}/${parameterIndex}`, keyword: 'parameterReference', message: `参数不存在：${parameterId}` })
+    })
+  }
+
+  const validateEvents = (events: EventBindingV3[], path: string, ownerPageId: string, ownerKind: 'page' | 'component'): void => {
     events.forEach((event, eventIndex) => {
       const eventPath = `${path}/${eventIndex}`
       if (eventIds.has(event.id)) {
@@ -168,30 +227,53 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
         validateValueExpression(condition.left, `${eventPath}/conditions/${conditionIndex}/left`)
         if (condition.right) validateValueExpression(condition.right, `${eventPath}/conditions/${conditionIndex}/right`)
       })
+      const browserActions = event.actions.filter((action) => action.type === 'openPageWindow' || action.type === 'openExternalLink')
+      if (browserActions.length && (browserActions.length !== 1 || event.actions[0] !== browserActions[0] || ownerKind !== 'component' || (event.event !== 'click' && event.event !== 'doubleClick' && event.event !== 'rowClick'))) issues.push({ path: `${eventPath}/actions`, keyword: 'browserUserActivation', message: '浏览器动作必须是直接组件手势中的唯一且首个浏览器动作' })
       event.actions.forEach((action, actionIndex) => {
         const actionPath = `${eventPath}/actions/${actionIndex}`
         if (actionIds.has(action.id)) {
           issues.push({ path: `${actionPath}/id`, keyword: 'uniqueActionId', message: '动作 ID 在应用内不能重复' })
         }
         actionIds.add(action.id)
-        if (action.type === 'setParameter') {
-          action.assignments.forEach((assignment, assignmentIndex) => {
-            const assignmentPath = `${actionPath}/assignments/${assignmentIndex}`
-            if (!parameterIdSet.has(assignment.parameterId)) {
-              issues.push({ path: `${assignmentPath}/parameterId`, keyword: 'parameterReference', message: `参数不存在：${assignment.parameterId}` })
-            }
-            validateValueExpression(assignment.value, `${assignmentPath}/value`)
-          })
-        } else if (action.target.kind === 'page') {
-          if (action.target.pageId !== ownerPageId) {
-            issues.push({ path: `${actionPath}/target/pageId`, keyword: 'refreshPageScope', message: 'Refresh 只能指向事件所属页面' })
+        if (action.type === 'setParameter') validateAssignments(action.assignments, `${actionPath}/assignments`)
+        else if (action.type === 'refresh') {
+          if (action.target.kind === 'page') {
+            if (action.target.pageId !== ownerPageId) issues.push({ path: `${actionPath}/target/pageId`, keyword: 'refreshPageScope', message: 'Refresh 只能指向事件所属页面' })
+          } else {
+            action.target.componentIds.forEach((componentId, componentIndex) => {
+              if (componentPageIds.get(componentId) !== ownerPageId) issues.push({ path: `${actionPath}/target/componentIds/${componentIndex}`, keyword: 'refreshComponentScope', message: 'Refresh 只能指向事件所属页面内的组件' })
+            })
           }
-        } else {
-          action.target.componentIds.forEach((componentId, componentIndex) => {
-            if (componentPageIds.get(componentId) !== ownerPageId) {
-              issues.push({ path: `${actionPath}/target/componentIds/${componentIndex}`, keyword: 'refreshComponentScope', message: 'Refresh 只能指向事件所属页面内的组件' })
-            }
+        } else if (action.type === 'navigatePage' || action.type === 'openPageWindow') {
+          if (pageById.get(action.pageId)?.type !== 'standard') issues.push({ path: `${actionPath}/pageId`, keyword: 'standardPageReference', message: '目标必须是存在的 standard 页面' })
+          if (action.type === 'navigatePage') validateAssignments(action.assignments ?? [], `${actionPath}/assignments`)
+          else validateCarryParameters(action.carryParameterIds, `${actionPath}/carryParameterIds`)
+        } else if (action.type === 'openDialog') {
+          if (pageById.get(action.pageId)?.type !== 'dialog') issues.push({ path: `${actionPath}/pageId`, keyword: 'dialogPageReference', message: '目标必须是存在的 dialog 页面' })
+          validateAssignments(action.assignments ?? [], `${actionPath}/assignments`)
+          const { width, height, minWidth, minHeight, maxWidth, maxHeight } = action.presentation
+          if ((minWidth !== undefined && minWidth > width) || (maxWidth !== undefined && maxWidth < width) || (minWidth !== undefined && maxWidth !== undefined && minWidth > maxWidth)) issues.push({ path: `${actionPath}/presentation/width`, keyword: 'dialogWidthBounds', message: '弹窗宽度必须位于最小和最大宽度之间' })
+          if ((minHeight !== undefined && minHeight > height) || (maxHeight !== undefined && maxHeight < height) || (minHeight !== undefined && maxHeight !== undefined && minHeight > maxHeight)) issues.push({ path: `${actionPath}/presentation/height`, keyword: 'dialogHeightBounds', message: '弹窗高度必须位于最小和最大高度之间' })
+        } else if (action.type === 'applyLinkage') {
+          validateAssignments(action.assignments, `${actionPath}/assignments`)
+          action.targetComponentIds.forEach((componentId, componentIndex) => {
+            if (componentPageIds.get(componentId) !== ownerPageId) issues.push({ path: `${actionPath}/targetComponentIds/${componentIndex}`, keyword: 'linkageComponentScope', message: '联动目标必须属于事件所属页面' })
           })
+        } else if (action.type === 'clearLinkage') {
+          if (action.linkageActionId && declaredActionTypes.get(action.linkageActionId) !== 'applyLinkage') issues.push({ path: `${actionPath}/linkageActionId`, keyword: 'linkageActionReference', message: '清除联动目标必须引用存在的 applyLinkage 动作' })
+        } else if (action.type === 'drillDown' || action.type === 'drillBack' || action.type === 'clearDrill') {
+          if (!drillPathIds.has(action.pathId)) issues.push({ path: `${actionPath}/pathId`, keyword: 'drillPathReference', message: `DrillPath 不存在：${action.pathId}` })
+        } else if (action.type === 'openExternalLink') {
+          validateCarryParameters(action.carryParameterIds, `${actionPath}/carryParameterIds`)
+          try {
+            const parsed = new URL(action.url)
+            const protocol = parsed.protocol
+            if ((protocol !== 'http:' && protocol !== 'https:') || parsed.username || parsed.password || action.url.trim() !== action.url || /[\u0000-\u001f\u007f]/.test(action.url)) throw new Error('unsupported URL')
+          } catch {
+            issues.push({ path: `${actionPath}/url`, keyword: 'safeExternalUrl', message: '外链必须是可解析的 http/https 绝对 URL' })
+          }
+        } else if (action.type === 'pageBack') {
+          if (pageById.get(ownerPageId)?.type !== 'standard') issues.push({ path: actionPath, keyword: 'standardPageOwner', message: 'pageBack 只能由 standard 页面内事件触发' })
         }
       })
     })
@@ -205,6 +287,9 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
       }
       componentIds.add(component.id)
       componentPageIds.set(component.id, page.id)
+    }
+    for (const binding of [...page.pageEvents, ...page.components.flatMap((component) => component.events ?? [])]) {
+      for (const action of binding.actions) declaredActionTypes.set(action.id, action.type)
     }
   }
 
@@ -221,9 +306,9 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
         }
       }
     }
-    validateEvents(page.pageEvents, `/pages/${pageIndex}/pageEvents`, page.id)
+    validateEvents(page.pageEvents, `/pages/${pageIndex}/pageEvents`, page.id, 'page')
     page.components.forEach((component, componentIndex) => {
-      validateEvents(component.events ?? [], `/pages/${pageIndex}/components/${componentIndex}/events`, page.id)
+      validateEvents(component.events ?? [], `/pages/${pageIndex}/components/${componentIndex}/events`, page.id, 'component')
     })
   }
 
@@ -240,7 +325,8 @@ export function validateDashboardApplicationV3(value: unknown): DashboardValidat
     }
   }
 
-  const issues = semanticIssues(value as unknown as DashboardApplicationV3)
+  const application = value as unknown as DashboardApplicationV3
+  const issues = [...reservedInteractionStateIssues(application.extensionRefs), ...semanticIssues(application)]
   return {
     valid: issues.length === 0,
     issues,

@@ -70,7 +70,7 @@ test('P9.1 enforces application-wide component, control and event ids', () => {
   assert.equal(result.issues.some((issue) => issue.keyword === 'uniqueEventId'), true)
 })
 
-test('P9.1 schema rejects Phase10 actions', () => {
+test('P9.1 schema still rejects unknown non-whitelisted actions', () => {
   const application = multiPageApplication()
   application.pages[0].pageEvents[0].actions.push({ id: 'action-navigate', type: 'navigate', pageId: 'page-detail' } as never)
   assert.equal(validateDashboardApplicationV3(application).valid, false)

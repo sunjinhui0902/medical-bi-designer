@@ -105,11 +105,14 @@ test('P9.1 sets default page only to an existing page', () => {
   assert.throws(() => setDefaultPageV3(created.application, 'missing'))
 })
 
-test('P9.1 page commands only create or copy standard pages', () => {
+test('P10.1 page commands explicitly create and preserve dialog page types', () => {
   const source = sourceApplication()
-  assert.throws(() => createPageV3(source, { name: 'Dialog', code: 'dialog', type: 'dialog' } as never, copiedId))
+  const created = createPageV3(source, { name: 'Dialog', code: 'dialog', type: 'dialog' }, copiedId)
+  assert.equal(created.application.pages[1].type, 'dialog')
+  assert.equal(validateDashboardApplicationV3(created.application).valid, true)
 
   source.pages[0].type = 'dialog'
   assert.equal(validateDashboardApplicationV3(source).valid, true)
-  assert.throws(() => copyPageV3(source, source.defaultPageId, { name: 'Dialog copy', code: 'dialog_copy' }, copiedId))
+  const copied = copyPageV3(source, source.defaultPageId, { name: 'Dialog copy', code: 'dialog_copy' }, copiedId)
+  assert.equal(copied.application.pages[1].type, 'dialog')
 })

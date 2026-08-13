@@ -57,7 +57,72 @@ export interface RefreshActionV3 {
     | { kind: 'page'; pageId: string }
 }
 
-export type ActionDefinitionV3 = SetParameterActionV3 | RefreshActionV3
+export interface InteractionParameterAssignmentV3 {
+  parameterId: string
+  value: ValueExpressionV3
+}
+
+export interface NavigatePageActionV3 {
+  id: string
+  type: 'navigatePage'
+  pageId: string
+  history: 'push' | 'replace'
+  assignments?: InteractionParameterAssignmentV3[]
+}
+
+export interface PageBackActionV3 { id: string; type: 'pageBack' }
+export interface OpenPageWindowActionV3 { id: string; type: 'openPageWindow'; pageId: string; carryParameterIds?: string[] }
+
+export interface DialogPresentationV3 {
+  width: number
+  height: number
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
+  draggable: boolean
+  resizable: boolean
+  closeOnEscape: boolean
+  closeOnBackdrop: boolean
+}
+
+export interface OpenDialogActionV3 {
+  id: string
+  type: 'openDialog'
+  pageId: string
+  presentation: DialogPresentationV3
+  assignments?: InteractionParameterAssignmentV3[]
+}
+
+export interface CloseDialogActionV3 { id: string; type: 'closeDialog' }
+
+export interface ApplyLinkageActionV3 {
+  id: string
+  type: 'applyLinkage'
+  assignments: InteractionParameterAssignmentV3[]
+  targetComponentIds: string[]
+}
+
+export interface ClearLinkageActionV3 { id: string; type: 'clearLinkage'; linkageActionId?: string }
+export interface DrillDownActionV3 { id: string; type: 'drillDown'; pathId: string }
+export interface DrillBackActionV3 { id: string; type: 'drillBack'; pathId: string }
+export interface ClearDrillActionV3 { id: string; type: 'clearDrill'; pathId: string }
+export interface OpenExternalLinkActionV3 { id: string; type: 'openExternalLink'; url: string; carryParameterIds?: string[] }
+
+export type ActionDefinitionV3 =
+  | SetParameterActionV3
+  | RefreshActionV3
+  | NavigatePageActionV3
+  | PageBackActionV3
+  | OpenPageWindowActionV3
+  | OpenDialogActionV3
+  | CloseDialogActionV3
+  | ApplyLinkageActionV3
+  | ClearLinkageActionV3
+  | DrillDownActionV3
+  | DrillBackActionV3
+  | ClearDrillActionV3
+  | OpenExternalLinkActionV3
 
 export interface EventBindingV3 {
   id: string
@@ -90,6 +155,19 @@ export interface ThemeConfigV3 {
   tokens: Record<string, unknown>
 }
 
+export interface DrillPathLevelV3 {
+  id: string
+  label: string
+  field: string
+  parameterId: string
+}
+
+export interface DrillPathV3 {
+  id: string
+  name: string
+  levels: DrillPathLevelV3[]
+}
+
 export interface RuntimePolicyV3 {
   previewScaleMode: PreviewScaleModeV3
   allowScroll: boolean
@@ -120,6 +198,7 @@ export interface DashboardApplicationV3 {
   description?: string
   defaultPageId: string
   parameters: ParameterDefinitionV3[]
+  drillPaths?: DrillPathV3[]
   pages: DashboardPageV3[]
   theme: ThemeConfigV3
   runtimePolicy: RuntimePolicyV3

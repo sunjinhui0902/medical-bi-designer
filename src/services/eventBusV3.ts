@@ -1,4 +1,4 @@
-import type { DashboardApplicationV3, EventBindingV3, EventNameV3, JsonObjectV3, JsonValueV3 } from '../models/dashboard-v3.ts'
+import type { DashboardApplicationV3, EventBindingV3, EventNameV3, JsonObjectV3, JsonValueV3, ValueExpressionV3 } from '../models/dashboard-v3.ts'
 import { inspectEventBindingAuthorabilityV3 } from './eventBindingManagerV3.ts'
 import { resolveEventOwnerV3, type EventOwnerV3 } from './eventAuthoringPolicyV3.ts'
 import { evaluateEventConditionsV3 } from './eventConditionEvaluatorV3.ts'
@@ -6,8 +6,9 @@ import { resolveEventValueV3 } from './eventValueResolverV3.ts'
 import { createUnavailableEventActionPortsV3 } from './eventActionPortsV3.ts'
 import { consumeJsonStructureBudgetV3, createJsonStructureBudgetV3, deepFreezeSafeJsonCloneV3, getInvalidJsonStructureLimitsMessageV3, safeCloneAndDeepFreezeJsonValueV3, safeCloneJsonValueV3, safeUnknownMessageV3, type JsonStructureBudgetV3, type JsonStructureLimitsV3 } from './eventJsonValueV3.ts'
 import { ApplicationEventSchedulerV3, systemEventClockV3 } from './eventRuntimeSchedulerV3.ts'
-import { validateParameterCommitTransitionV3 } from './parameterCommitSemanticsV3.ts'
-import type { EmittedEventV3, EventActionPortsV3, EventActionResultV3, EventClockV3, EventRuntimeContextV3, EventRuntimeIssueV3, EventTransactionResultV3, EventTriggerV3, LateActionAuditV3, ParameterCommitHandoffV3, ResolvedEventActionRequestV3 } from './eventRuntimeTypesV3.ts'
+import { strictJsonEqualV3, validateParameterCommitTransitionV3 } from './parameterCommitSemanticsV3.ts'
+import { isTrustedPageSessionInteractionPortV3, verifyPageSessionInteractionCommitV3 } from './pageSessionRuntimeV3.ts'
+import type { EmittedEventV3, EventActionPortsV3, EventActionResultV3, EventClockV3, EventRuntimeContextV3, EventRuntimeIssueV3, EventTransactionResultV3, EventTriggerV3, InteractionSessionLeaseV3, LateActionAuditV3, ParameterCommitHandoffV3, ResolvedEventActionRequestV3 } from './eventRuntimeTypesV3.ts'
 
 interface Options { ports?: EventActionPortsV3; clock?: EventClockV3; idFactory?: () => string; structureLimits?: Readonly<JsonStructureLimitsV3> }
 interface Envelope { source: EventOwnerV3; eventName: EventNameV3; payload: JsonObjectV3; depth: number; key: string }
@@ -25,9 +26,9 @@ const bindingKey = (owner: EventOwnerV3, id: string) => `${ownerKey(owner)}:${id
 export class EventBusV3 {
   private static readonly MAX_LATE_AUDITS = 1000
   private static readonly MAX_LATE_AUDIT_NODES = 500_000
-  private readonly ports: EventActionPortsV3; private readonly clock: EventClockV3; private readonly idFactory: () => string; private readonly structureLimits?: Readonly<JsonStructureLimitsV3>
+  private readonly ports: Required<EventActionPortsV3>; private readonly clock: EventClockV3; private readonly idFactory: () => string; private readonly structureLimits?: Readonly<JsonStructureLimitsV3>
   private readonly scheduler = new ApplicationEventSchedulerV3(); private readonly pending = new Map<string, Pending>(); private readonly lateAudits: LateActionAuditV3[] = []; private readonly lateAuditNodeCosts: number[] = []; private lateAuditNodeCount = 0; private lateAuditDroppedCount = 0
-  constructor(options: Options = {}) { this.ports = options.ports ?? createUnavailableEventActionPortsV3(); this.clock = options.clock ?? systemEventClockV3; this.idFactory = options.idFactory ?? (() => crypto.randomUUID()); this.structureLimits = options.structureLimits }
+  constructor(options: Options = {}) { this.ports = { ...createUnavailableEventActionPortsV3(), ...options.ports } as Required<EventActionPortsV3>; this.clock = options.clock ?? systemEventClockV3; this.idFactory = options.idFactory ?? (() => crypto.randomUUID()); this.structureLimits = options.structureLimits }
   getLateAudits(): LateActionAuditV3[] { return deepFreezeSafeJsonCloneV3(this.lateAudits.map((item) => { const cloned = safeCloneJsonValueV3(item); return cloned.ok ? deepFreezeSafeJsonCloneV3(cloned.value) : this.minimalLateAudit(item, cloned.message) })) }
   getLateAuditDroppedCount(): number { return this.lateAuditDroppedCount }
 
@@ -95,6 +96,8 @@ export class EventBusV3 {
   private async process(app: DashboardApplicationV3, transactionId: string, envelope: Envelope, queue: Envelope[], visited: Set<string>, pendingKeys: Set<string>, state: State, signal: AbortSignal): Promise<EventRuntimeIssueV3 | undefined> {
     const owner = resolveEventOwnerV3(app, envelope.source).owner; const binding = this.bindings(app, owner, envelope.eventName)[0]
     if (!binding) return { code: 'INVALID_EVENT', message: 'binding 不存在' }
+    const browserActions = binding.actions.filter((action) => action.type === 'openPageWindow' || action.type === 'openExternalLink')
+    if (browserActions.length && (browserActions.length !== 1 || binding.actions[0] !== browserActions[0] || owner.kind !== 'component' || (envelope.eventName !== 'click' && envelope.eventName !== 'doubleClick' && envelope.eventName !== 'rowClick'))) return { code: 'INVALID_EVENT', message: 'browser action requires one leading direct component gesture' }
     const inspection = inspectEventBindingAuthorabilityV3(app, owner, binding); if (!inspection.authorable) return { code: 'INVALID_EVENT', message: inspection.reasons.join('；') }
     if (!binding.enabled) { state.trace.push({ kind: 'disabled', eventBindingId: binding.id, depth: envelope.depth }); return }
     const context: EventRuntimeContextV3 = deepFreezeSafeJsonCloneV3({ transactionId, depth: envelope.depth, applicationId: app.id, eventBindingId: binding.id, eventName: binding.event, source: envelope.source, occurredAt: this.clock.now(), payload: envelope.payload })
@@ -103,29 +106,37 @@ export class EventBusV3 {
     for (const raw of binding.actions) {
       if (signal.aborted) return { code: 'CANCELLED', message: '事务已取消' }
       if (++state.actionCount > 10000) return { code: 'ACTION_BUDGET_EXCEEDED', message: '动作预算超限' }
+      const portType = raw.type === 'setParameter' || raw.type === 'refresh' ? raw.type : 'interaction'
       const resolved = this.resolveAction(raw, context, state.parameters, state.budget); if ('code' in resolved) return resolved
+      let sessionLease: InteractionSessionLeaseV3 | undefined
+      if (portType === 'interaction') {
+        if (!isTrustedPageSessionInteractionPortV3(this.ports.interaction)) return { code: 'PORT_CONTRACT_VIOLATION', message: 'interaction actions require trusted PageSession provenance', actionId: raw.id }
+        try { sessionLease = this.ports.interaction.captureSessionLease?.() } catch (reason) { return { code: 'ACTION_FAILED', message: this.message(reason), actionId: raw.id } }
+        if (!sessionLease || typeof sessionLease.sessionId !== 'string' || !sessionLease.sessionId || !Number.isSafeInteger(sessionLease.epoch) || sessionLease.epoch < 1 || !Number.isSafeInteger(sessionLease.revision) || sessionLease.revision < 1) return { code: 'EXECUTOR_UNAVAILABLE', message: 'interaction session lease unavailable', actionId: raw.id }
+        sessionLease = deepFreezeSafeJsonCloneV3(sessionLease)
+      }
       state.attempted.push(raw.id)
       let rawResult: unknown
       try {
-        rawResult = raw.type === 'setParameter'
-          ? await this.ports.setParameter.execute({ action: resolved as Extract<ResolvedEventActionRequestV3, { type: 'setParameter' }>, context, parameterSnapshot: state.parameters, signal })
-          : await this.ports.refresh.execute({ action: resolved as Extract<ResolvedEventActionRequestV3, { type: 'refresh' }>, context, parameterSnapshot: state.parameters, signal, refreshClaimSnapshot: deepFreezeSafeJsonCloneV3([...state.refreshClaims]) })
+        if (raw.type === 'setParameter') rawResult = await this.ports.setParameter.execute({ action: resolved as Extract<ResolvedEventActionRequestV3, { type: 'setParameter' }>, context, parameterSnapshot: state.parameters, signal })
+        else if (raw.type === 'refresh') rawResult = await this.ports.refresh.execute({ action: resolved as Extract<ResolvedEventActionRequestV3, { type: 'refresh' }>, context, parameterSnapshot: state.parameters, signal, refreshClaimSnapshot: deepFreezeSafeJsonCloneV3([...state.refreshClaims]) })
+        else rawResult = await this.ports.interaction.execute({ action: resolved as Exclude<ResolvedEventActionRequestV3, { type: 'setParameter' | 'refresh' }>, context, parameterSnapshot: state.parameters, signal, refreshClaimSnapshot: deepFreezeSafeJsonCloneV3([...state.refreshClaims]), sessionLease: sessionLease! })
       } catch (reason) {
-        if (signal.aborted) this.recordLate(transactionId, raw.id, raw.type, 'rejected', undefined, 'ACTION_FAILED', this.message(reason), state.budget)
+        if (signal.aborted) this.recordLate(transactionId, raw.id, portType, 'rejected', undefined, 'ACTION_FAILED', this.message(reason), state.budget)
         return { code: 'ACTION_FAILED', message: this.message(reason), actionId: raw.id }
       }
       const outcome = this.parseActionOutcome(rawResult, raw.id)
-      if ('code' in outcome) { if (signal.aborted) this.recordLate(transactionId, raw.id, raw.type, 'rejected', undefined, outcome.code, outcome.message, state.budget, false, 'absent'); return outcome }
+      if ('code' in outcome) { if (signal.aborted) this.recordLate(transactionId, raw.id, portType, 'rejected', undefined, outcome.code, outcome.message, state.budget, false, 'absent'); return outcome }
       if (outcome.effectApplied === true) state.effectApplied = true
       if (outcome.status === 'succeeded') state.completed.push(raw.id)
       const outcomeIssue = this.parseActionIssue(outcome, raw.id, state.budget)
       const recordedIssue = outcomeIssue.issue
       state.trace.push(deepFreezeSafeJsonCloneV3({ kind: 'actionOutcome', actionId: raw.id, eventBindingId: binding.id, depth: envelope.depth, status: outcome.status, ...(recordedIssue?.code ? { code: recordedIssue.code } : {}), ...(recordedIssue?.message ? { message: recordedIssue.message } : {}) }))
-      if (!outcomeIssue.ok) { if (signal.aborted) this.recordLate(transactionId, raw.id, raw.type, outcome.status, undefined, outcomeIssue.issue.code, outcomeIssue.issue.message, state.budget, true, 'absent'); return outcomeIssue.issue }
+      if (!outcomeIssue.ok) { if (signal.aborted) this.recordLate(transactionId, raw.id, portType, outcome.status, undefined, outcomeIssue.issue.code, outcomeIssue.issue.message, state.budget, true, 'absent'); return outcomeIssue.issue }
       const details = this.parseActionDetails(outcome, raw.id, state.budget)
       if (!details.ok) {
         state.trace.push(deepFreezeSafeJsonCloneV3({ kind: 'actionDetail', actionId: raw.id, eventBindingId: binding.id, depth: envelope.depth, detailStatus: 'invalid', code: details.issue.code, message: details.issue.message }))
-        if (signal.aborted) this.recordLate(transactionId, raw.id, raw.type, outcome.status, details.evidence, details.issue.code, details.issue.message, state.budget, true, details.evidenceStatus, details.evidenceError)
+        if (signal.aborted) this.recordLate(transactionId, raw.id, portType, outcome.status, details.evidence, details.issue.code, details.issue.message, state.budget, true, details.evidenceStatus, details.evidenceError)
         return details.issue
       }
       state.trace.push(deepFreezeSafeJsonCloneV3({ kind: 'actionDetail', actionId: raw.id, eventBindingId: binding.id, depth: envelope.depth, detailStatus: 'accepted', ...(details.evidence !== undefined ? { evidence: details.evidence } : {}) }))
@@ -133,18 +144,32 @@ export class EventBusV3 {
         if (details.refreshClaims !== undefined) return { code: 'PORT_CONTRACT_VIOLATION', message: 'setParameter must not return refreshClaims', actionId: raw.id }
         if ((details.effectApplied === true || details.parameterCommit !== undefined) && (!details.parameterCommit || details.effectApplied !== true)) return { code: 'PORT_CONTRACT_VIOLATION', message: 'setParameter effectApplied 与 parameterCommit 必须成对出现', actionId: raw.id }
         if (details.parameterCommit) {
-          const handoffIssue = this.validateParameterCommit(details.parameterCommit, app.id, resolved as Extract<ResolvedEventActionRequestV3, { type: 'setParameter' }>, transactionId, state.parameters)
+          const handoffIssue = this.validateParameterCommit(details.parameterCommit, app, resolved, transactionId, state.parameters)
           if (handoffIssue) return handoffIssue
           state.parameters = details.parameterCommit.values
           state.effectApplied = true
         }
         if (details.emitted !== undefined && !details.parameterCommit) return { code: 'PORT_CONTRACT_VIOLATION', message: 'setParameter emittedEvents 必须携带合法 parameterCommit', actionId: raw.id }
-      } else {
+      } else if (raw.type === 'refresh') {
         if (details.parameterCommit !== undefined || details.emitted !== undefined) return { code: 'PORT_CONTRACT_VIOLATION', message: 'refresh must not return parameterCommit or emittedEvents', actionId: raw.id }
         if (outcome.status === 'skipped' && details.refreshClaims?.length) return { code: 'PORT_CONTRACT_VIOLATION', message: 'skipped refresh must not claim queries', actionId: raw.id }
         details.refreshClaims?.forEach((claim) => state.refreshClaims.add(claim))
+      } else {
+        if (details.refreshClaims?.length && ((resolved.type !== 'applyLinkage' && resolved.type !== 'clearLinkage') || !this.ports.interaction || !isTrustedPageSessionInteractionPortV3(this.ports.interaction))) return { code: 'PORT_CONTRACT_VIOLATION', message: 'interaction refreshClaims require trusted linkage provenance', actionId: raw.id }
+        if (details.emitted !== undefined && ((resolved.type !== 'navigatePage' && resolved.type !== 'openDialog') || !this.validNavigationEmission(details.emitted, resolved.pageId, resolved.type === 'openDialog' ? 'dialog' : 'standard'))) return { code: 'PORT_CONTRACT_VIOLATION', message: 'interaction emittedEvents must be the target pageEnter', actionId: raw.id }
+        if (outcome.status === 'skipped' && (details.effectApplied === true || details.parameterCommit !== undefined || details.refreshClaims?.length)) return { code: 'PORT_CONTRACT_VIOLATION', message: 'skipped interaction must have zero side effects', actionId: raw.id }
+        if (outcome.status === 'succeeded' && details.effectApplied !== true) return { code: 'PORT_CONTRACT_VIOLATION', message: 'succeeded interaction must report effectApplied', actionId: raw.id }
+        if (details.parameterCommit && details.effectApplied !== true) return { code: 'PORT_CONTRACT_VIOLATION', message: 'interaction parameterCommit requires effectApplied', actionId: raw.id }
+        if (!details.parameterCommit && this.interactionAssignmentsRequireCommit(resolved, state.parameters)) return { code: 'PORT_CONTRACT_VIOLATION', message: 'interaction changed assignments require parameterCommit', actionId: raw.id }
+        if (details.parameterCommit) {
+          const handoffIssue = this.validateParameterCommit(details.parameterCommit, app, resolved, transactionId, state.parameters, sessionLease)
+          if (handoffIssue) return handoffIssue
+          state.parameters = details.parameterCommit.values
+          state.effectApplied = true
+        }
+        details.refreshClaims?.forEach((claim) => state.refreshClaims.add(claim))
       }
-      if (signal.aborted) { this.recordLate(transactionId, raw.id, raw.type, outcome.status, details.evidence, outcomeIssue.issue?.code, outcomeIssue.issue?.message, state.budget, true, details.evidenceStatus); return { code: 'CANCELLED', message: '事务已取消', actionId: raw.id } }
+      if (signal.aborted) { this.recordLate(transactionId, raw.id, portType, outcome.status, details.evidence, outcomeIssue.issue?.code, outcomeIssue.issue?.message, state.budget, true, details.evidenceStatus); return { code: 'CANCELLED', message: '事务已取消', actionId: raw.id } }
       if (outcome.status !== 'succeeded' && details.emitted !== undefined) return { code: 'PORT_CONTRACT_VIOLATION', message: 'skipped/failed 不得 emittedEvents', actionId: raw.id }
       if (outcome.status === 'failed') return outcomeIssue.issue ?? { code: 'ACTION_FAILED', message: '动作失败', actionId: raw.id }
       if (details.emitted !== undefined) {
@@ -190,10 +215,23 @@ export class EventBusV3 {
 
   private resolveAction(raw: EventBindingV3['actions'][number], context: EventRuntimeContextV3, parameters: Readonly<Record<string, JsonValueV3>>, budget: JsonStructureBudgetV3): ResolvedEventActionRequestV3 | EventRuntimeIssueV3 {
     if (raw.type === 'refresh') { const charged = consumeJsonStructureBudgetV3(budget, 1, 'resolved refresh action'); if (!charged.ok) return { code: charged.code, message: charged.message, actionId: raw.id }; return deepFreezeSafeJsonCloneV3({ id: raw.id, type: 'refresh', target: raw.target }) }
-    const assignments: Array<{ parameterId: string; value: JsonValueV3 }> = []
-    for (const item of raw.assignments) { const value = resolveEventValueV3(item.value, context, parameters, budget); if (value.kind !== 'value') return { code: value.kind === 'error' && value.code === 'STRUCTURE_BUDGET_EXCEEDED' ? value.code : 'INVALID_EVENT', message: value.kind === 'error' ? value.message : `赋值 ${item.parameterId} 缺失` }; assignments.push({ parameterId: item.parameterId, value: value.value }) }
-    const charged = consumeJsonStructureBudgetV3(budget, 2 + assignments.length, 'resolved setParameter action'); if (!charged.ok) return { code: charged.code, message: charged.message, actionId: raw.id }
-    return deepFreezeSafeJsonCloneV3({ id: raw.id, type: 'setParameter', assignments })
+    const resolveAssignments = (items: Array<{ parameterId: string; value: ValueExpressionV3 }>, label: string): Array<{ parameterId: string; value: JsonValueV3 }> | EventRuntimeIssueV3 => {
+      const assignments: Array<{ parameterId: string; value: JsonValueV3 }> = []
+      for (const item of items) { const value = resolveEventValueV3(item.value, context, parameters, budget); if (value.kind !== 'value') return { code: value.kind === 'error' && value.code === 'STRUCTURE_BUDGET_EXCEEDED' ? value.code : 'INVALID_EVENT', message: value.kind === 'error' ? value.message : `赋值 ${item.parameterId} 缺失`, actionId: raw.id }; assignments.push({ parameterId: item.parameterId, value: value.value }) }
+      const charged = consumeJsonStructureBudgetV3(budget, 2 + assignments.length, label); if (!charged.ok) return { code: charged.code, message: charged.message, actionId: raw.id }
+      return assignments
+    }
+    if (raw.type === 'setParameter') {
+      const assignments = resolveAssignments(raw.assignments, 'resolved setParameter action'); if (!Array.isArray(assignments)) return assignments
+      return deepFreezeSafeJsonCloneV3({ id: raw.id, type: raw.type, assignments })
+    }
+    if (raw.type === 'navigatePage' || raw.type === 'openDialog' || raw.type === 'applyLinkage') {
+      const assignments = resolveAssignments(raw.assignments ?? [], `resolved ${raw.type} action`); if (!Array.isArray(assignments)) return assignments
+      return deepFreezeSafeJsonCloneV3({ ...raw, assignments }) as ResolvedEventActionRequestV3
+    }
+    const charged = consumeJsonStructureBudgetV3(budget, 1, `resolved ${raw.type} action`); if (!charged.ok) return { code: charged.code, message: charged.message, actionId: raw.id }
+    if (raw.type === 'openPageWindow' || raw.type === 'openExternalLink') return deepFreezeSafeJsonCloneV3({ ...raw, carryParameterIds: raw.carryParameterIds ?? [] }) as ResolvedEventActionRequestV3
+    return deepFreezeSafeJsonCloneV3(raw) as ResolvedEventActionRequestV3
   }
 
   private bindings(app: DashboardApplicationV3, owner: EventOwnerV3, name: EventNameV3) { const page = app.pages.find((item) => item.id === owner.pageId); const events = owner.kind === 'page' ? page?.pageEvents : page?.components.find((item) => item.id === owner.componentId)?.events; return (events ?? []).filter((item) => item.event === name) }
@@ -259,23 +297,58 @@ export class EventBusV3 {
     try { emitted = read('emittedEvents') } catch (reason) { return { ok: false, issue: { code: 'PORT_CONTRACT_VIOLATION', message: this.message(reason), actionId }, ...(evidence !== undefined ? { evidence } : {}), evidenceStatus: evidence === undefined ? 'absent' : 'accepted' } }
     return { ok: true, ...(emitted !== undefined ? { emitted } : {}), ...(evidence !== undefined ? { evidence } : {}), ...(effectApplied !== undefined ? { effectApplied } : {}), ...(parameterCommit !== undefined ? { parameterCommit } : {}), ...(refreshClaims !== undefined ? { refreshClaims } : {}), evidenceStatus: evidence === undefined ? 'absent' : 'accepted' }
   }
-  private validateParameterCommit(value: ParameterCommitHandoffV3, applicationId: string, action: Extract<ResolvedEventActionRequestV3, { type: 'setParameter' }>, eventTransactionId: string, before: Readonly<Record<string, JsonValueV3>>): EventRuntimeIssueV3 | undefined {
+  private validateParameterCommit(value: ParameterCommitHandoffV3, application: DashboardApplicationV3, action: ResolvedEventActionRequestV3, eventTransactionId: string, before: Readonly<Record<string, JsonValueV3>>, sessionLease?: InteractionSessionLeaseV3): EventRuntimeIssueV3 | undefined {
     const actionId = action.id
     const invalid = (message: string): EventRuntimeIssueV3 => ({ code: 'PORT_CONTRACT_VIOLATION', message, actionId })
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return invalid('parameterCommit 必须是 plain object')
-    const allowed = new Set(['kind', 'applicationId', 'actionId', 'eventTransactionId', 'parameterTransactionId', 'changedParameterIds', 'values'])
-    if (Object.keys(value).some((key) => !allowed.has(key)) || Object.keys(value).length !== allowed.size) return invalid('parameterCommit 字段非法')
-    if (value.kind !== 'parameterCommit' || value.applicationId !== applicationId || value.actionId !== actionId || value.eventTransactionId !== eventTransactionId) return invalid('parameterCommit 绑定信息非法')
+    const required = ['kind', 'applicationId', 'actionId', 'eventTransactionId', 'parameterTransactionId', 'changedParameterIds', 'values']
+    const allowed = new Set([...required, 'assignments', 'sessionLease'])
+    const keys = Object.keys(value)
+    const optionalCount = (value.assignments === undefined ? 0 : 1) + (value.sessionLease === undefined ? 0 : 1)
+    if (keys.some((key) => !allowed.has(key)) || required.some((key) => !Object.hasOwn(value, key)) || keys.length !== required.length + optionalCount) return invalid('parameterCommit 字段非法')
+    if (value.kind !== 'parameterCommit' || value.applicationId !== application.id || value.actionId !== actionId || value.eventTransactionId !== eventTransactionId) return invalid('parameterCommit 绑定信息非法')
     if (typeof value.parameterTransactionId !== 'string' || !value.parameterTransactionId) return invalid('parameterTransactionId 非法')
     if (!Array.isArray(value.changedParameterIds) || !value.changedParameterIds.length || value.changedParameterIds.some((id) => typeof id !== 'string' || !id) || new Set(value.changedParameterIds).size !== value.changedParameterIds.length) return invalid('changedParameterIds 非法')
     if (!value.values || typeof value.values !== 'object' || Array.isArray(value.values) || Object.getPrototypeOf(value.values) !== Object.prototype) return invalid('parameterCommit values 非法')
     if (value.parameterTransactionId === eventTransactionId) return invalid('parameter and event transaction ids must differ')
-    const transition = validateParameterCommitTransitionV3({ before, after: value.values, assignments: action.assignments, changedParameterIds: value.changedParameterIds })
+    let assignments: Array<{ parameterId: string; value: JsonValueV3 }>
+    if (action.type === 'setParameter') {
+      if (value.assignments !== undefined || value.sessionLease !== undefined) return invalid('setParameter parameterCommit 不允许 interaction 字段')
+      assignments = action.assignments
+    } else {
+      if (!Array.isArray(value.assignments) || !value.assignments.length) return invalid('interaction parameterCommit 必须携带 assignments')
+      if (!sessionLease || !value.sessionLease || !strictJsonEqualV3(value.sessionLease as unknown as JsonValueV3, sessionLease as unknown as JsonValueV3)) return invalid('interaction parameterCommit session lease 不一致')
+      assignments = value.assignments
+      if (assignments.some((item) => !item || typeof item !== 'object' || typeof item.parameterId !== 'string' || !item.parameterId)) return invalid('interaction assignments 非法')
+      const parameterIds = new Set(application.parameters.map((parameter) => parameter.id))
+      if (assignments.some((item) => !parameterIds.has(item.parameterId))) return invalid('interaction assignment 参数不存在')
+      if (action.type === 'applyLinkage') {
+        if (assignments.length !== action.assignments.length || assignments.some((item, index) => item.parameterId !== action.assignments[index].parameterId || !strictJsonEqualV3(item.value, action.assignments[index].value))) return invalid('interaction assignments 与动作解析值不一致')
+      } else if (action.type === 'navigatePage' || action.type === 'pageBack' || action.type === 'openDialog' || action.type === 'closeDialog' || action.type === 'clearLinkage' || action.type === 'drillDown' || action.type === 'drillBack' || action.type === 'clearDrill') {
+        try {
+          if (!verifyPageSessionInteractionCommitV3(this.ports.interaction, { application, action, eventTransactionId, before, commit: value, sessionLease })) return invalid(`${action.type} parameterCommit 缺少受信迁移证明`)
+        } catch { return invalid(`${action.type} parameterCommit 受信迁移验证失败`) }
+      } else return invalid(`${action.type} 不允许 parameterCommit`)
+    }
+    const transition = validateParameterCommitTransitionV3({ before, after: value.values, assignments, changedParameterIds: value.changedParameterIds })
     if (!transition.ok) return invalid(transition.message)
     return undefined
   }
+  private interactionAssignmentsRequireCommit(action: ResolvedEventActionRequestV3, before: Readonly<Record<string, JsonValueV3>>) {
+    if (action.type !== 'navigatePage' && action.type !== 'openDialog' && action.type !== 'applyLinkage') return false
+    return action.assignments.some((item) => !Object.hasOwn(before, item.parameterId) || !strictJsonEqualV3(before[item.parameterId], item.value))
+  }
+  private validNavigationEmission(raw: unknown, pageId: string, pageType: 'standard' | 'dialog') {
+    try {
+      if (!Array.isArray(raw) || raw.length !== 1) return false
+      const item = raw[0]
+      if (!item || typeof item !== 'object' || Array.isArray(item) || Object.getPrototypeOf(item) !== Object.prototype) return false
+      const event = item as EmittedEventV3
+      return event.eventName === 'pageEnter' && event.source?.kind === 'page' && event.source.pageId === pageId && event.source.pageType === pageType && event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload) && Object.keys(event.payload).length === 0
+    } catch { return false }
+  }
   private safe<T>(value: T, label: string, budget: JsonStructureBudgetV3): T { const result = safeCloneAndDeepFreezeJsonValueV3(value, budget); if (!result.ok) throw new RuntimeInputError(result.code, `${label}: ${result.message}`); return result.value }
-  private recordLate(transactionId: string, actionId: string, portType: 'setParameter' | 'refresh', actualStatus: 'succeeded' | 'failed' | 'skipped' | 'rejected', evidence: JsonValueV3 | undefined, code: string | undefined, message: string | undefined, budget: JsonStructureBudgetV3, evidenceAlreadySafe = false, suppliedEvidenceStatus?: 'absent' | 'accepted' | 'invalid', suppliedEvidenceError?: string) {
+  private recordLate(transactionId: string, actionId: string, portType: 'setParameter' | 'refresh' | 'interaction', actualStatus: 'succeeded' | 'failed' | 'skipped' | 'rejected', evidence: JsonValueV3 | undefined, code: string | undefined, message: string | undefined, budget: JsonStructureBudgetV3, evidenceAlreadySafe = false, suppliedEvidenceStatus?: 'absent' | 'accepted' | 'invalid', suppliedEvidenceError?: string) {
     let safeEvidence: JsonValueV3 | undefined; let evidenceMessage = suppliedEvidenceError; let evidenceStatus = suppliedEvidenceStatus ?? (evidence === undefined ? 'absent' : 'accepted')
     if (evidence !== undefined) {
       if (evidenceAlreadySafe) safeEvidence = evidence

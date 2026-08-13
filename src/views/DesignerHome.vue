@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import {
   IconActivityHeartbeat,
   IconBed,
@@ -29,6 +29,7 @@ import {
   IconTypography,
 } from '@tabler/icons-vue'
 import DataChart from '../components/DataChart.vue'
+import DialogHostV3 from '../components/DialogHostV3.vue'
 import DatasetCatalog, { type CatalogDataset, type CatalogField } from '../components/DatasetCatalog.vue'
 import EventConfigPanel from '../components/EventConfigPanel.vue'
 import PageManagerPanel from '../components/PageManagerPanel.vue'
@@ -38,7 +39,9 @@ import type { ComponentDataConfigV3, DatasetQueryParameterV3, QueryResult } from
 import {
   createDefaultDashboardApplicationV3,
   type DashboardApplicationV3,
+  type DashboardComponentV3,
   type EventBindingV3,
+  type JsonObjectV3,
   type JsonValueV3,
   type ParameterControlV3,
 } from '../models/dashboard-v3'
@@ -94,6 +97,7 @@ import {
 import { QueryRuntimeCacheV3 } from '../services/queryRuntimeCacheV3'
 import { createComponentQueryRefreshV3, type ComponentQueryDescriptorV3, type ComponentQueryLoadRequestV3 } from '../services/componentQueryRefreshV3'
 import { createDesignerEventRuntimeV3, createDesignerQueryStateGuardV3, safeParameterRuntimeValuesV3 } from '../services/designerEventRuntimeV3'
+import type { PageSessionSnapshotV3 } from '../services/pageSessionRuntimeV3'
 import { useDesignerPreviewRuntimeV3 } from '../composables/useDesignerPreviewRuntimeV3'
 import { instantiateMedicalTemplate, normalizeMedicalTemplates, saveMedicalTemplate, type MedicalComponentTemplate } from '../services/componentTemplates'
 import { buildComponentDataView, normalizeQueryResult } from '../services/queryResult'
@@ -154,6 +158,7 @@ const selectedId = ref('kpi_income')
 const previewMode = ref(false)
 const saveState = ref('未保存')
 const canvasElement = ref<HTMLDivElement | null>(null)
+const controlBarElement = ref<HTMLDivElement | null>(null)
 const importInput = ref<HTMLInputElement | null>(null)
 const datasetCatalogOpen = ref(false)
 const serverDatasets = ref<Record<string, CatalogDataset>>({})
@@ -162,6 +167,7 @@ const datasetLoading = ref<Record<string, boolean>>({})
 const datasetErrors = ref<Record<string, string>>({})
 const parameterRuntime = shallowRef<ParameterRuntimeStoreV3 | null>(null)
 const parameterRuntimeValues = ref<Record<string, JsonValueV3>>({})
+const interactionState = ref<PageSessionSnapshotV3 | null>(null)
 const pendingControlValues = ref<Record<string, unknown>>({})
 const eventOwner = ref<EventOwnerV3 | null>(null)
 const eventPanel = ref<{ hasDirtyDraft: () => boolean; discardDraft: () => void; applyCurrent: () => boolean } | null>(null)
@@ -196,6 +202,7 @@ let pointerAction: PointerAction | null = null
 let panelResize: { side: 'left' | 'right'; startX: number; startWidth: number } | null = null
 let stateTimer: number | undefined
 let medicalTemplateClickTimer: number | undefined
+let previewDialogOpenerId = ''
 
 const components = computed(() => dashboard.value.components)
 const selected = computed(() => components.value.find((component) => component.id === selectedId.value))
@@ -214,6 +221,7 @@ const eventOwnerComponents = computed(() => eventOwner.value
   : [])
 const activePageControls = computed(() => dashboardApplication.value.pages
   .find((page) => page.id === activePageId.value)?.controls ?? [])
+const activeDrillBreadcrumbs = computed(() => interactionState.value?.drills.flatMap((drill) => drill.frames.map((frame) => ({ pathId: drill.pathId, label: frame.label, value: frame.value }))) ?? [])
 const previewRuntime = useDesignerPreviewRuntimeV3({
   activePageId,
   applicationSnapshot: currentApplicationSnapshot,
@@ -221,8 +229,31 @@ const previewRuntime = useDesignerPreviewRuntimeV3({
   createRuntime(application, onStatus) {
     if (!parameterRuntime.value) throw new Error('参数运行时未初始化')
     return createDesignerEventRuntimeV3({
-      application, parameters: parameterRuntime.value, queryRuntime: componentQueryRuntime, onStatus,
+      application, parameters: parameterRuntime.value, initialPageId: activePageId.value, queryRuntime: componentQueryRuntime, onStatus,
+      dialogEnvironment: {
+        viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+        protectedRegions: () => {
+          const rect = controlBarElement.value?.getBoundingClientRect()
+          return rect ? [{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }] : []
+        },
+      },
       onParameters(values) { parameterRuntimeValues.value = { ...values } },
+      onInteractionState(snapshot) {
+        const dialogClosed = (interactionState.value?.dialogs.length ?? 0) > snapshot.dialogs.length
+        interactionState.value = snapshot
+        if (dialogClosed) void nextTick(() => {
+          const opener = document.querySelector<HTMLElement>(`[data-component-id="${CSS.escape(previewDialogOpenerId)}"]`)
+          if (opener?.isConnected) opener.focus()
+        })
+        if (!previewMode.value || snapshot.closed || snapshot.activePageId === activePageId.value) return
+        const transition = openPageDesignerSessionV3(dashboardApplication.value, snapshot.activePageId)
+        pageSession.value = transition.session
+        dashboard.value = transition.dashboard
+        normalizeCanvas(false)
+        selectedId.value = ''
+        datasetCatalogOpen.value = false
+        void loadActivePageDatasets()
+      },
       onQueryState(componentId, state, message, queryKey, descriptor) {
         if (!descriptor) return
         if (state === 'loading') { const lease = datasetStateGuard.begin(componentId, queryKey); descriptorDatasetLeases.set(descriptor, lease); activeDatasetLeases.set(componentId, { descriptor, lease }) }
@@ -510,13 +541,13 @@ function normalizeComponent(component: DashboardComponent) {
   component.position.y = Math.round(clamp(component.position.y, 0, canvas.height - component.position.height))
 }
 
-function normalizeCanvas() {
+function normalizeCanvas(mark: boolean | Event = true) {
   const canvas = dashboard.value.canvas
   canvas.width = Math.round(clamp(canvas.width, 320, 1920))
   canvas.height = Math.round(clamp(canvas.height, 240, 1080))
   canvas.gridSize = Math.round(clamp(canvas.gridSize, 4, 40))
   components.value.forEach(normalizeComponent)
-  markDirty()
+  if (mark !== false) markDirty()
 }
 
 function deleteSelected() {
@@ -682,6 +713,16 @@ function runtimeParameterValues(): Record<string, JsonValueV3> {
 
 function initializeParameterRuntime(application: DashboardApplicationV3) {
   parameterRuntime.value = new ParameterRuntimeStoreV3(application.parameters)
+  if (typeof window !== 'undefined') {
+    const assignments: Array<{ parameterId: string; value: JsonValueV3 }> = []
+    let invalid = false
+    for (const parameter of application.parameters) {
+      const key = `parameter.${parameter.id}`; const values = new URL(window.location.href).searchParams.getAll(key)
+      if (values.length > 1) { invalid = true; break }
+      if (values.length === 1) { try { assignments.push({ parameterId: parameter.id, value: JSON.parse(values[0]) as JsonValueV3 }) } catch { invalid = true; break } }
+    }
+    if (!invalid && assignments.length) { try { parameterRuntime.value.commit(assignments, 'control') } catch { /* fail closed without partial import */ } }
+  }
   parameterRuntimeValues.value = runtimeParameterValues()
   pendingControlValues.value = {}
 }
@@ -1034,6 +1075,7 @@ function activatePage(application: DashboardApplicationV3, pageId: string) {
 
 function cleanupDesignerRuntimeState() {
   previewRuntime.stop()
+  interactionState.value = null
   for (const controller of internalDatasetControllers) controller.abort()
   internalDatasetControllers.clear()
   datasetStateGuard.invalidateAll()
@@ -1048,7 +1090,13 @@ function applyDashboardApplication(application: DashboardApplicationV3) {
   cleanupDesignerRuntimeState()
   previewMode.value = false
   initializeParameterRuntime(application)
-  activatePage(application, application.defaultPageId)
+  const requestedPageId = typeof window === 'undefined'
+    ? null
+    : new URL(window.location.href).searchParams.get('previewPageId')
+  const entryPageId = application.pages.some((page) => page.id === requestedPageId && page.type === 'standard')
+    ? requestedPageId!
+    : application.defaultPageId
+  activatePage(application, entryPageId)
 }
 
 function switchDesignerPage(pageId: string) {
@@ -1323,10 +1371,54 @@ async function togglePreview() {
   await previewRuntime.start()
 }
 
-function handleComponentClick(componentId: string) {
-  if (previewMode.value) void previewRuntime.componentClick(componentId)
+function handleComponentClick(componentId: string, event?: MouseEvent) {
+  if (previewMode.value) {
+    if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus()
+    previewDialogOpenerId = componentId
+    const component = components.value.find((item) => item.id === componentId)
+    let datum: Record<string, JsonValueV3> = {}
+    try { datum = safeParameterRuntimeValuesV3(component ? (dataViewFor(component).rows[0] ?? {}) : {}) } catch { datum = {} }
+    void previewRuntime.componentClick(componentId, datum)
+  }
   else selectedId.value = componentId
 }
+
+async function dismissPreviewDialog(reason: 'button' | 'escape' | 'backdrop') {
+  const before = interactionState.value?.dialogs.length ?? 0
+  const snapshot = previewRuntime.dismissDialog(reason)
+  if (!snapshot || snapshot.dialogs.length >= before) return
+  await nextTick()
+  const opener = document.querySelector<HTMLElement>(`[data-component-id="${CSS.escape(previewDialogOpenerId)}"]`)
+  if (opener?.isConnected) opener.focus()
+}
+
+function clearPreviewInteractions() { void previewRuntime.clearLinkage() }
+
+function handleTableRowClick(componentId: string, row: Record<string, unknown>) {
+  if (!previewMode.value) return
+  const component = components.value.find((item) => item.id === componentId) as DashboardComponentV3 | undefined
+  const hasRowClick = component?.events?.some((binding) => binding.enabled && binding.event === 'rowClick') ?? false
+  try {
+    const payload = safeParameterRuntimeValuesV3(row)
+    if (hasRowClick) void previewRuntime.componentRowClick(componentId, payload)
+    else void previewRuntime.componentClick(componentId, payload)
+  } catch {
+    if (hasRowClick) void previewRuntime.componentRowClick(componentId, {})
+    else void previewRuntime.componentClick(componentId, {})
+  }
+}
+
+function dialogComponentRows(componentId: string): JsonObjectV3[] {
+  const component = dashboardApplication.value.pages.flatMap((page) => page.components).find((item) => item.id === componentId)
+  if (!component) return []
+  return dataViewFor(component).rows.flatMap((row) => {
+    try { return [safeParameterRuntimeValuesV3(row)] }
+    catch { return [] }
+  })
+}
+
+function handleDialogComponentClick(pageId: string, componentId: string, datum: JsonObjectV3) { void previewRuntime.componentClick(componentId, datum, pageId) }
+function handleDialogComponentRowClick(pageId: string, componentId: string, row: JsonObjectV3) { void previewRuntime.componentRowClick(componentId, row, pageId) }
 
 function setSaveState(message: string) {
   saveState.value = message
@@ -1360,6 +1452,7 @@ function stopPanelResize() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  if (previewMode.value && event.key === 'Escape' && interactionState.value?.dialogs.length) { event.preventDefault(); void dismissPreviewDialog('escape'); return }
   const target = event.target as HTMLElement
   if ((event.key === 'Delete' || event.key === 'Backspace') && !target.closest('input, textarea, select')) deleteSelected()
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -1423,6 +1516,11 @@ onBeforeUnmount(() => {
 
       <section class="canvas-stage" aria-label="看板画布">
         <div class="canvas-session-bars">
+          <nav v-if="previewMode && interactionState" class="phase10-runtime-nav" aria-label="预览交互导航">
+            <button type="button" :disabled="interactionState.stack.length <= 1" @click="previewRuntime.pageBack()">返回</button>
+            <ol v-if="activeDrillBreadcrumbs.length" aria-label="下钻面包屑"><li v-for="(item, index) in activeDrillBreadcrumbs" :key="`${item.pathId}-${index}`"><button type="button" title="返回上一下钻层级" @click="previewRuntime.drillBack(item.pathId)"><span>{{ item.label }}</span><b>{{ String(item.value) }}</b></button></li></ol>
+            <button type="button" @click="clearPreviewInteractions">清除联动</button>
+          </nav>
           <PageManagerPanel
             :pages="pageListItems"
             :active-page-id="activePageId"
@@ -1435,7 +1533,7 @@ onBeforeUnmount(() => {
             @set-default="setDesignerDefaultPage"
             @configure-events="openPageEventConfig"
           />
-          <div v-if="activePageControls.length" class="parameter-control-runtime" aria-label="运行时筛选条件">
+          <div v-if="activePageControls.length" ref="controlBarElement" class="parameter-control-runtime" aria-label="运行时筛选条件">
           <section v-for="control in activePageControls" :key="control.id" class="runtime-control-card">
             <template v-for="parameterId in control.parameterIds" :key="parameterId">
               <label v-if="parameterFor(parameterId)" class="runtime-control-field">
@@ -1458,7 +1556,7 @@ onBeforeUnmount(() => {
           <div class="artboard interactive-artboard" :style="{ width: `${artboardWidth}px` }">
             <div class="artboard-heading" :style="{ textAlign: dashboard.titleStyle.align }"><div><small>HOSPITAL OPERATIONS</small><h2 v-if="dashboard.titleStyle.show" :style="{ fontSize: `${dashboard.titleStyle.fontSize}px`, color: dashboard.titleStyle.color, fontWeight: dashboard.titleStyle.fontWeight }">{{ dashboard.name }}</h2></div><span>Mock + PostgreSQL / Greenplum · 保存后可恢复</span></div>
             <div ref="canvasElement" class="interactive-canvas" :class="{ 'grid-hidden': !dashboard.canvas.showGrid }" :style="canvasBackground" @dragover.prevent @drop.prevent="handleDrop" @click.self="selectCanvas">
-              <article v-for="component in components" :key="component.id" class="design-component" :class="{ 'is-selected': component.id === selectedId && !previewMode }" :data-component-id="component.id" :style="componentStyle(component)" @pointerdown="!previewMode && startPointer($event, component, 'move')" @click.stop="handleComponentClick(component.id)">
+              <article v-for="component in components" :key="component.id" class="design-component" :class="{ 'is-selected': component.id === selectedId && !previewMode }" :data-component-id="component.id" :tabindex="previewMode ? 0 : undefined" :style="componentStyle(component)" @pointerdown="!previewMode && startPointer($event, component, 'move')" @click.stop="handleComponentClick(component.id, $event)">
                 <div v-if="component.id === selectedId && !previewMode" class="selection-label">当前选中</div>
                 <button v-if="!previewMode && component.styleConfig.titleVisible" class="widget-grip" type="button" aria-label="移动组件"><IconGripVertical :size="16" /></button>
                 <div v-if="component.styleConfig.titleVisible" class="design-component-header" :class="{ 'preview-title': previewMode }"><span :style="{ color: component.styleConfig.titleColor, fontSize: `${component.styleConfig.titleSize}px`, fontWeight: component.styleConfig.titleWeight }">{{ component.title }}</span><IconDots v-if="!previewMode" :size="17" /></div>
@@ -1467,7 +1565,7 @@ onBeforeUnmount(() => {
                   <div v-else-if="datasetErrorFor(component)" class="runtime-state error"><IconDatabase :size="18" /><span>{{ datasetErrorFor(component) }}</span></div>
                   <template v-else>
                     <DataChart v-if="isChart(component.type) && component.analysisConfig" :kind="chartKind(component.type)" :categories="categoriesFor(component)" :series="dataViewFor(component).series" :analysis="component.analysisConfig" />
-                    <template v-else-if="component.type === 'table'"><table :class="{ striped: component.tableConfig?.striped }"><thead v-if="component.tableConfig?.showHeader !== false"><tr><th v-for="column in tableColumnsFor(component)" :key="column.field" :style="{ width: `${column.width}px` }">{{ column.label }}</th></tr></thead><tbody><tr v-for="(row, index) in dataViewFor(component).rows.slice(0, 20)" :key="index"><td v-for="column in tableColumnsFor(component)" :key="column.field">{{ tableValue(row[column.field], column.format) }}</td></tr></tbody><tfoot v-if="tableColumnsFor(component).some((column) => column.summary !== 'none')"><tr><td v-for="column in tableColumnsFor(component)" :key="column.field">{{ tableValue(tableSummary(component, column.field, column.summary), column.format) }}</td></tr></tfoot></table></template>
+                    <template v-else-if="component.type === 'table'"><table :class="{ striped: component.tableConfig?.striped }"><thead v-if="component.tableConfig?.showHeader !== false"><tr><th v-for="column in tableColumnsFor(component)" :key="column.field" :style="{ width: `${column.width}px` }">{{ column.label }}</th></tr></thead><tbody><tr v-for="(row, index) in dataViewFor(component).rows.slice(0, 20)" :key="index" @click.stop="handleTableRowClick(component.id, row)"><td v-for="column in tableColumnsFor(component)" :key="column.field">{{ tableValue(row[column.field], column.format) }}</td></tr></tbody><tfoot v-if="tableColumnsFor(component).some((column) => column.summary !== 'none')"><tr><td v-for="column in tableColumnsFor(component)" :key="column.field">{{ tableValue(tableSummary(component, column.field, column.summary), column.format) }}</td></tr></tfoot></table></template>
                     <template v-else-if="component.type === 'text'"><strong class="text-preview">医院运营分析说明</strong><p class="text-note">支持标题和说明文本。</p></template>
                     <template v-else-if="component.kpiConfig"><strong class="kpi-value">{{ formattedMetric(component) }}<small>{{ metricUnit(component) }}</small></strong><div v-if="kpiComparison(component, 'yoy') !== null || kpiComparison(component, 'mom') !== null" class="kpi-comparisons"><p v-if="kpiComparison(component, 'yoy') !== null" class="kpi-trend" :style="{ color: kpiComparisonColor(component, kpiComparison(component, 'yoy') ?? 0) }"><IconTrendingUp :size="15" />同比 {{ (kpiComparison(component, 'yoy') ?? 0).toFixed(1) }}%</p><p v-if="kpiComparison(component, 'mom') !== null" class="kpi-trend" :style="{ color: kpiComparisonColor(component, kpiComparison(component, 'mom') ?? 0) }"><IconTrendingUp :size="15" />环比 {{ (kpiComparison(component, 'mom') ?? 0).toFixed(1) }}%</p></div><p v-else class="kpi-trend"><IconTrendingUp :size="15" />{{ sourceKindFor(component) === 'server' ? '数据库数据集实时计算' : 'Mock 数据实时计算' }}</p><div v-if="component.kpiConfig.showProgress" class="kpi-progress"><div><span>目标达成</span><b>{{ kpiProgress(component).toFixed(1) }}%</b></div><i><em :style="{ width: `${Math.min(100, kpiProgress(component))}%`, background: component.kpiConfig.progressColor }"></em></i></div></template>
                   </template>
@@ -1528,12 +1626,24 @@ onBeforeUnmount(() => {
       :events="eventOwnerEvents"
       :parameters="dashboardApplication.parameters"
       :components="eventOwnerComponents"
+      :pages="dashboardApplication.pages"
+      :drill-paths="dashboardApplication.drillPaths ?? []"
       :authorable-events="eventOwnerAuthorableEvents"
       :field-capabilities="eventFieldCapabilities"
       :inspect-binding="inspectEventBinding"
       :apply-binding="applyEventBinding"
       :delete-binding="deleteEventBinding"
       @close="eventOwner = null"
+    />
+    <DialogHostV3
+      v-if="previewMode && interactionState?.dialogs.length"
+      :dialogs="interactionState.dialogs" :pages="dashboardApplication.pages"
+      :component-rows="dialogComponentRows"
+      @dismiss="dismissPreviewDialog"
+      @move="previewRuntime.moveDialog"
+      @resize="previewRuntime.resizeDialog"
+      @component-click="handleDialogComponentClick"
+      @component-row-click="handleDialogComponentRowClick"
     />
   </div>
 </template>
@@ -1545,3 +1655,6 @@ onBeforeUnmount(() => {
 <style src="../styles/designer-v2-fields.css"></style>
 <style src="../styles/designer-phase8-binding.css"></style>
 <style src="../styles/designer-phase8-controls.css"></style>
+<style scoped>
+.phase10-runtime-nav{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #dbe3ec;background:#fff}.phase10-runtime-nav>button{padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer}.phase10-runtime-nav>button:disabled{opacity:.4}.phase10-runtime-nav ol{display:flex;align-items:center;gap:6px;min-width:0;margin:0;padding:0;list-style:none}.phase10-runtime-nav li{display:flex;gap:5px;padding:5px 8px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:11px}.phase10-runtime-nav li+li::before{content:'›';color:#94a3b8}
+</style>

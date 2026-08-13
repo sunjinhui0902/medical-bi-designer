@@ -26,6 +26,14 @@ const nodeTests = {
   'P9.5': ['tests/phase9-set-parameter-action.test.ts', 'tests/phase9-event-runtime.test.ts'],
   'P9.6': ['tests/phase9-refresh-action.test.ts', 'tests/phase9-set-parameter-action.test.ts', 'tests/phase9-event-runtime.test.ts'],
   'P9.7': ['tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-refresh-action.test.ts', 'tests/phase9-set-parameter-action.test.ts', 'tests/phase9-event-runtime.test.ts'],
+  'P10.0': ['tests/phase10-navigation-contract.test.ts'],
+  'P10.1': ['tests/phase10-navigation-contract.test.ts', 'tests/phase9-page-model.test.ts', 'tests/phase9-page-operations.test.ts', 'tests/phase9-event-authoring.test.ts'],
+  'P10.2': ['tests/phase10-page-runtime.test.ts', 'tests/phase10-navigation-contract.test.ts', 'tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-event-runtime.test.ts', 'tests/phase9-set-parameter-action.test.ts'],
+  'P10.3': ['tests/phase10-linkage-runtime.test.ts', 'tests/phase10-page-runtime.test.ts', 'tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-event-runtime.test.ts', 'tests/phase9-set-parameter-action.test.ts'],
+  'P10.4': ['tests/phase10-drill-runtime.test.ts', 'tests/phase10-designer-drill-runtime.test.ts', 'tests/phase10-page-runtime.test.ts', 'tests/phase10-linkage-runtime.test.ts', 'tests/phase10-navigation-contract.test.ts', 'tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-event-runtime.test.ts', 'tests/phase9-set-parameter-action.test.ts', 'tests/phase9-refresh-action.test.ts'],
+  'P10.5': ['tests/phase10-dialog-geometry.test.ts', 'tests/phase10-dialog-runtime.test.ts', 'tests/phase10-drill-runtime.test.ts', 'tests/phase10-linkage-runtime.test.ts', 'tests/phase10-page-runtime.test.ts', 'tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-event-runtime.test.ts'],
+  'P10.6': ['tests/phase10-safe-browser.test.ts', 'tests/phase10-navigation-contract.test.ts', 'tests/phase10-page-runtime.test.ts', 'tests/phase9-event-authoring.test.ts', 'tests/phase9-event-runtime.test.ts'],
+  'P10.7': ['tests/phase10-dialog-geometry.test.ts', 'tests/phase10-dialog-runtime.test.ts', 'tests/phase10-safe-browser.test.ts', 'tests/phase10-drill-runtime.test.ts', 'tests/phase10-designer-drill-runtime.test.ts', 'tests/phase10-linkage-runtime.test.ts', 'tests/phase10-page-runtime.test.ts', 'tests/phase10-navigation-contract.test.ts', 'tests/phase9-designer-runtime-integration.test.ts', 'tests/phase9-event-runtime.test.ts'],
 }
 
 if (!full && !nodeId) {
@@ -237,7 +245,7 @@ if (!full && nodeTests[nodeId].length) {
 await runNpm('全量单元与契约回归', ['test'])
 await runNpm('TypeScript 与生产构建', ['run', 'build'])
 
-const browserNodes = new Set(['P8.5', 'P8.7', 'P9.2'])
+const browserNodes = new Set(['P8.5', 'P8.7', 'P9.2', 'P10.5', 'P10.6', 'P10.7'])
 if (full || browserNodes.has(nodeId)) await runNpm('Chromium 关键链路测试', ['run', 'test:e2e'])
 if (full) await runNpm('高危依赖审计', [
   'audit', '--json', '--audit-level=high', '--registry=https://registry.npmjs.org',

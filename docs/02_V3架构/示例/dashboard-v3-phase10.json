@@ -1,0 +1,96 @@
+{
+  "version": 3,
+  "id": "dashboard-phase10-example",
+  "name": "Phase10 声明式交互示例",
+  "description": "脱敏示例：医院、科室、医生仅作为声明式路径标签和虚构值，不进入核心执行器。",
+  "defaultPageId": "page-hospital",
+  "parameters": [
+    { "id": "parameter-hospital", "code": "hospital_code", "name": "医院", "type": "string", "scope": "application", "required": false, "source": { "kind": "static", "options": [] } },
+    { "id": "parameter-department", "code": "department_code", "name": "科室", "type": "string", "scope": "application", "required": false, "source": { "kind": "static", "options": [] } },
+    { "id": "parameter-doctor", "code": "doctor_code", "name": "医生", "type": "string", "scope": "application", "required": false, "source": { "kind": "static", "options": [] } }
+  ],
+  "drillPaths": [{
+    "id": "drill-clinical", "name": "医院到医生", "levels": [
+      { "id": "level-hospital", "label": "医院", "field": "hospital_code", "parameterId": "parameter-hospital" },
+      { "id": "level-department", "label": "科室", "field": "department_code", "parameterId": "parameter-department" },
+      { "id": "level-doctor", "label": "医生", "field": "doctor_code", "parameterId": "parameter-doctor" }
+    ]
+  }],
+  "pages": [
+    {
+      "id": "page-hospital", "name": "医院", "code": "hospital", "order": 1, "type": "standard",
+      "canvas": { "width": 1200, "height": 700, "background": "#f7f9fb", "showGrid": true, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 24, "color": "#243447", "fontWeight": 700, "align": "left" },
+      "controls": [],
+      "components": [
+        {
+          "id": "component-hospital", "type": "table", "title": "医院入口", "position": { "x": 20, "y": 20, "width": 360, "height": 260, "zIndex": 1 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-hospital", "dimensions": [{ "field": "hospital_code", "role": "category" }, { "field": "department_code", "role": "category" }, { "field": "doctor_code", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 100, "parameterBindings": [], "refreshPolicy": "onPageEnter" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+          "events": [{
+            "id": "event-hospital-click", "enabled": true, "event": "click", "actions": [
+              { "id": "action-link-hospital", "type": "applyLinkage", "assignments": [{ "parameterId": "parameter-hospital", "value": { "kind": "eventField", "path": "/datum/hospital_code" } }], "targetComponentIds": ["component-summary"] },
+              { "id": "action-drill-down", "type": "drillDown", "pathId": "drill-clinical" },
+              { "id": "action-navigate-department", "type": "navigatePage", "pageId": "page-department", "history": "push", "assignments": [{ "parameterId": "parameter-hospital", "value": { "kind": "eventField", "path": "/datum/hospital_code" } }] }
+            ]
+          }]
+        },
+        {
+          "id": "component-summary", "type": "table", "title": "联动摘要", "position": { "x": 410, "y": 20, "width": 360, "height": 260, "zIndex": 2 },
+          "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-summary", "dimensions": [{ "field": "label", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 100, "parameterBindings": [{ "datasetParameterCode": "hospital_code", "parameterId": "parameter-hospital" }], "refreshPolicy": "onParameterChange" },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true }
+        },
+        {
+          "id": "component-dialog", "type": "text", "title": "弹窗入口", "position": { "x": 800, "y": 20, "width": 260, "height": 120, "zIndex": 3 },
+          "dataConfig": { "version": 2, "sourceKind": "dataset", "datasetId": "mock-empty", "dimensions": [], "measures": [], "filters": [], "sort": [], "limit": 100 },
+          "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+          "events": [{ "id": "event-open-dialog", "enabled": true, "event": "click", "actions": [{ "id": "action-open-dialog", "type": "openDialog", "pageId": "page-dialog", "presentation": { "width": 640, "height": 420, "minWidth": 360, "minHeight": 240, "maxWidth": 960, "maxHeight": 720, "draggable": true, "resizable": true, "closeOnEscape": true, "closeOnBackdrop": false } }] }]
+        }
+      ],
+      "pageEvents": []
+    },
+    {
+      "id": "page-department", "name": "科室与医生", "code": "department", "order": 2, "type": "standard",
+      "canvas": { "width": 1200, "height": 700, "background": "#f7f9fb", "showGrid": true, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 24, "color": "#243447", "fontWeight": 700, "align": "left" },
+      "controls": [],
+      "components": [{
+        "id": "component-department", "type": "table", "title": "科室与医生", "position": { "x": 20, "y": 20, "width": 520, "height": 320, "zIndex": 1 },
+        "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-department", "dimensions": [{ "field": "department_code", "role": "category" }, { "field": "doctor_code", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 100, "parameterBindings": [{ "datasetParameterCode": "hospital_code", "parameterId": "parameter-hospital" }], "refreshPolicy": "onPageEnter" },
+        "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+        "events": [{ "id": "event-department-click", "enabled": true, "event": "click", "actions": [{ "id": "action-drill-department", "type": "drillDown", "pathId": "drill-clinical" }, { "id": "action-navigate-doctor", "type": "navigatePage", "pageId": "page-doctor", "history": "push", "assignments": [{ "parameterId": "parameter-department", "value": { "kind": "eventField", "path": "/datum/department_code" } }] }] }]
+      }],
+      "pageEvents": []
+    },
+    {
+      "id": "page-doctor", "name": "医生", "code": "doctor", "order": 3, "type": "standard",
+      "canvas": { "width": 1200, "height": 700, "background": "#f7f9fb", "showGrid": true, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 24, "color": "#243447", "fontWeight": 700, "align": "left" },
+      "controls": [],
+      "components": [{
+        "id": "component-doctor", "type": "table", "title": "医生明细", "position": { "x": 20, "y": 20, "width": 520, "height": 320, "zIndex": 1 },
+        "dataConfig": { "version": 3, "sourceKind": "server", "datasetId": "dataset-doctor", "dimensions": [{ "field": "doctor_code", "role": "category" }], "measures": [], "filters": [], "sort": [], "limit": 100, "parameterBindings": [{ "datasetParameterCode": "department_code", "parameterId": "parameter-department" }], "refreshPolicy": "onPageEnter" },
+        "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+        "events": [{ "id": "event-doctor-click", "enabled": true, "event": "click", "actions": [{ "id": "action-drill-doctor", "type": "drillDown", "pathId": "drill-clinical" }] }]
+      }],
+      "pageEvents": []
+    },
+    {
+      "id": "page-dialog", "name": "交互详情", "code": "interaction_dialog", "order": 4, "type": "dialog",
+      "canvas": { "width": 640, "height": 420, "background": "#ffffff", "showGrid": false, "gridSize": 12 },
+      "titleStyle": { "show": true, "fontSize": 20, "color": "#243447", "fontWeight": 700, "align": "left" },
+      "controls": [],
+      "components": [{
+        "id": "component-dialog-close", "type": "text", "title": "关闭详情", "position": { "x": 20, "y": 20, "width": 220, "height": 100, "zIndex": 1 },
+        "dataConfig": { "version": 2, "sourceKind": "dataset", "datasetId": "mock-empty", "dimensions": [], "measures": [], "filters": [], "sort": [], "limit": 100 },
+        "styleConfig": { "background": "#ffffff", "titleColor": "#243447", "titleSize": 14, "titleWeight": 650, "titleVisible": true },
+        "events": [{ "id": "event-dialog-close", "enabled": true, "event": "click", "actions": [{ "id": "action-dialog-close", "type": "closeDialog" }] }]
+      }],
+      "pageEvents": []
+    }
+  ],
+  "theme": { "id": "medical-light", "tokens": {} },
+  "runtimePolicy": { "previewScaleMode": "width", "allowScroll": true, "parameterPersistence": "session", "maxEventDepth": 10 },
+  "extensionRefs": {},
+  "publishConfig": { "status": "draft", "entryPageId": "page-hospital", "access": "private" }
+}

@@ -305,7 +305,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await panel.getByRole('button', { name: '+ Refresh' }).click()
   await panel.getByRole('button', { name: '应用', exact: true }).click()
   await expect(panel.getByRole('button', { name: /pageEnter/ })).toBeVisible()
-  await expect(panel.getByText(/navigate/i)).toHaveCount(0)
+  await expect(panel.getByLabel('新增交互动作')).toBeVisible()
   await expect(panel.getByText(/script/i)).toHaveCount(0)
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
 
@@ -365,8 +365,8 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.getByRole('tab', { name: /事件测试页/ }).click()
   await page.getByRole('button', { name: '配置页面事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
-  await expect(panel.getByText('dialog 既有事件仅供只读查看')).toBeVisible()
-  await expect(panel.getByLabel('新建事件')).toHaveCount(0)
+  await expect(panel.getByLabel('新建事件')).toBeVisible()
+  await expect(panel.getByText('dialog 既有事件仅供只读查看')).toHaveCount(0)
   expect(executeRequests).toBe(0)
 })
 

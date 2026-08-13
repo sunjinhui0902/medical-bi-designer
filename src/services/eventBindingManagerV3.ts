@@ -110,16 +110,24 @@ function inspectAction(
   reasons: string[],
 ): void {
   const path = `actions[${index}]`
-  if (action.type === 'setParameter') {
-    const parameterIds = action.assignments.map((item) => item.parameterId)
-    if (!action.assignments.length) reasons.push(`${path} 至少需要一个赋值`)
-    if (new Set(parameterIds).size !== parameterIds.length) reasons.push(`${path} 不能重复赋值同一参数`)
-    action.assignments.forEach((assignment, assignmentIndex) => {
+  const inspectAssignments = (assignments: Array<{ parameterId: string; value: ValueExpressionV3 }>, assignmentPath: string): void => {
+    const parameterIds = assignments.map((item) => item.parameterId)
+    if (!assignments.length) reasons.push(`${assignmentPath} 至少需要一个赋值`)
+    if (new Set(parameterIds).size !== parameterIds.length) reasons.push(`${assignmentPath} 不能重复赋值同一参数`)
+    assignments.forEach((assignment, assignmentIndex) => {
       if (!application.parameters.some((item) => item.id === assignment.parameterId)) {
-        reasons.push(`${path}.assignments[${assignmentIndex}] 参数不存在：${assignment.parameterId}`)
+        reasons.push(`${assignmentPath}[${assignmentIndex}] 参数不存在：${assignment.parameterId}`)
       }
-      inspectExpression(assignment.value, binding.event, resolved, application, `${path}.assignments[${assignmentIndex}].value`, reasons)
+      inspectExpression(assignment.value, binding.event, resolved, application, `${assignmentPath}[${assignmentIndex}].value`, reasons)
     })
+  }
+  const inspectCarry = (parameterIds: string[] | undefined, carryPath: string): void => {
+    parameterIds?.forEach((parameterId) => {
+      if (!application.parameters.some((item) => item.id === parameterId)) reasons.push(`${carryPath} 参数不存在：${parameterId}`)
+    })
+  }
+  if (action.type === 'setParameter') {
+    inspectAssignments(action.assignments, `${path}.assignments`)
     return
   }
   if (action.type === 'refresh') {
@@ -131,6 +139,48 @@ function inspectAction(
       if (new Set(action.target.componentIds).size !== action.target.componentIds.length) reasons.push(`${path} Refresh 组件目标不能重复`)
       action.target.componentIds.forEach((id) => { if (!componentIds.has(id)) reasons.push(`${path} Refresh 组件不属于 owner 页面：${id}`) })
     }
+    return
+  }
+  if (action.type === 'navigatePage' || action.type === 'openPageWindow') {
+    if (action.type === 'navigatePage' && resolved.owner.pageType === 'dialog') reasons.push(`${path} dialog 页面不得直接导航 standard 页面`)
+    if (application.pages.find((item) => item.id === action.pageId)?.type !== 'standard') reasons.push(`${path} 目标必须是 standard 页面：${action.pageId}`)
+    if (action.type === 'navigatePage') { if (action.assignments) inspectAssignments(action.assignments, `${path}.assignments`) }
+    else inspectCarry(action.carryParameterIds, `${path}.carryParameterIds`)
+    return
+  }
+  if (action.type === 'openDialog') {
+    if (application.pages.find((item) => item.id === action.pageId)?.type !== 'dialog') reasons.push(`${path} 目标必须是 dialog 页面：${action.pageId}`)
+    if (action.assignments) inspectAssignments(action.assignments, `${path}.assignments`)
+    return
+  }
+  if (action.type === 'closeDialog') {
+    return
+  }
+  if (action.type === 'pageBack') {
+    if (resolved.owner.pageType !== 'standard') reasons.push(`${path} pageBack 只能由 standard 页面触发`)
+    return
+  }
+  if (action.type === 'applyLinkage') {
+    inspectAssignments(action.assignments, `${path}.assignments`)
+    const ownerComponents = new Set(application.pages.find((item) => item.id === resolved.owner.pageId)!.components.map((item) => item.id))
+    action.targetComponentIds.forEach((componentId) => { if (!ownerComponents.has(componentId)) reasons.push(`${path} 联动组件不属于 owner 页面：${componentId}`) })
+    return
+  }
+  if (action.type === 'clearLinkage') {
+    if (action.linkageActionId) {
+      const target = application.pages.flatMap((page) => [...page.pageEvents, ...page.components.flatMap((component) => component.events ?? [])]).flatMap((event) => event.actions).find((item) => item.id === action.linkageActionId)
+      if (target?.type !== 'applyLinkage') reasons.push(`${path} 清除目标不是存在的 applyLinkage：${action.linkageActionId}`)
+    }
+    return
+  }
+  if (action.type === 'drillDown' || action.type === 'drillBack' || action.type === 'clearDrill') {
+    if (!(application.drillPaths ?? []).some((item) => item.id === action.pathId)) reasons.push(`${path} DrillPath 不存在：${action.pathId}`)
+    return
+  }
+  if (action.type === 'openExternalLink') {
+    inspectCarry(action.carryParameterIds, `${path}.carryParameterIds`)
+    try { const parsed = new URL(action.url); const protocol = parsed.protocol; if ((protocol !== 'http:' && protocol !== 'https:') || parsed.username || parsed.password || action.url.trim() !== action.url || /[\u0000-\u001f\u007f]/.test(action.url)) throw new Error('unsupported URL') }
+    catch { reasons.push(`${path} 外链必须是可解析的 http/https 绝对 URL`) }
     return
   }
   reasons.push(`${path} 不支持的动作类型：${String((action as { type?: unknown }).type)}`)
@@ -148,12 +198,13 @@ export function inspectEventBindingAuthorabilityV3(
     reasons.push(safeUnknownMessageV3(reason, '事件 owner 不存在'))
     return { authorable: false, readOnly: true, reasons }
   }
-  if (resolved.owner.pageType === 'dialog') reasons.push('dialog 页面事件只能只读查看')
   if (!authorableEventNamesV3(resolved.owner).includes(binding.event)) reasons.push(`当前 owner 不允许 ${binding.event} 事件`)
   if (!binding.actions.length) reasons.push('事件至少需要一个动作')
   if (binding.debounceMs !== undefined && (!Number.isInteger(binding.debounceMs) || binding.debounceMs < 0)) reasons.push('debounceMs 必须是非负整数')
   binding.conditions?.forEach((condition, index) => inspectCondition(condition, index, binding, resolved, application, reasons))
   binding.actions.forEach((action, index) => inspectAction(action, index, binding, resolved, application, reasons))
+  const browserActions = binding.actions.filter((action) => action.type === 'openPageWindow' || action.type === 'openExternalLink')
+  if (browserActions.length && (browserActions.length !== 1 || binding.actions[0] !== browserActions[0] || resolved.owner.kind !== 'component' || (binding.event !== 'click' && binding.event !== 'doubleClick' && binding.event !== 'rowClick'))) reasons.push('浏览器动作必须是直接组件手势中的唯一且首个浏览器动作')
   if (ownerEvents(application, resolved).some((item) => item.id !== binding.id && item.event === binding.event)) {
     reasons.push(`同一 owner 已存在 ${binding.event} 事件`)
   }

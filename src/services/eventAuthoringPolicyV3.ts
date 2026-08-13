@@ -51,7 +51,6 @@ export function resolveEventOwnerV3(application: DashboardApplicationV3, snapsho
 }
 
 export function authorableEventNamesV3(owner: EventOwnerV3): EventNameV3[] {
-  if (owner.pageType === 'dialog') return []
   if (owner.kind === 'page') return [...PAGE_EVENTS]
   return [...(owner.componentType === 'table' ? TABLE_EVENTS : COMPONENT_EVENTS)]
 }
@@ -85,5 +84,5 @@ export function isEventFieldAuthorableV3(event: EventNameV3, path: string, compo
 }
 
 export function isOwnerReadOnlyV3(owner: EventOwnerV3): boolean {
-  return owner.pageType === 'dialog'
+  return false
 }

@@ -33,6 +33,13 @@ const V2_ROOT_FIELDS = new Set([
   'updatedAt',
 ])
 
+const V3_ROOT_FIELDS = new Set([
+  'version', 'id', 'name', 'description', 'defaultPageId', 'parameters', 'drillPaths', 'pages',
+  'theme', 'runtimePolicy', 'extensionRefs', 'publishConfig', 'createdAt', 'updatedAt',
+  'activePageId', 'pageStack', 'dialogStack', 'drillStacks', 'linkageState', 'dialogGeometry',
+  'interactionSessionId', 'interactionEpoch',
+])
+
 const SENSITIVE_KEY = /password|secret|token|credential|private.?key|connection.?string|host|username|database|sql/i
 
 const SENSITIVE_VALUE = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|postgres(?:ql)?:\/\/[^\s]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}/i
@@ -68,6 +75,21 @@ function safeLegacyRoot(value: UnknownRecord): UnknownRecord {
       .filter(([key]) => !V2_ROOT_FIELDS.has(key) && !SENSITIVE_KEY.test(key))
       .map(([key, child]) => [key, sanitizeExtensionValue(child)]),
   )
+}
+
+function migrateDashboardV3Identity(value: DashboardApplicationV3, warnings: string[]): DashboardApplicationV3 {
+  const source = cloneJson(value) as DashboardApplicationV3 & UnknownRecord
+  const legacyRoot = Object.fromEntries(
+    Object.entries(source)
+      .filter(([key]) => !V3_ROOT_FIELDS.has(key) && !SENSITIVE_KEY.test(key))
+      .map(([key, child]) => [key, sanitizeExtensionValue(child)]),
+  )
+  for (const key of Object.keys(source)) if (!V3_ROOT_FIELDS.has(key)) delete source[key]
+  if (!Object.keys(legacyRoot).length) return source
+  const existingLegacy = isRecord(source.extensionRefs?.legacyRoot) ? source.extensionRefs.legacyRoot : {}
+  source.extensionRefs = { ...(source.extensionRefs ?? {}), legacyRoot: { ...existingLegacy, ...legacyRoot } }
+  warnings.push(`已将 ${Object.keys(legacyRoot).length} 个旧 V3 根级扩展字段迁入 extensionRefs.legacyRoot`)
+  return source
 }
 
 function stableHash(value: string): string {
@@ -184,7 +206,7 @@ export function migrateDashboardToV3(value: unknown): DashboardMigrationResultV3
   try {
     sourceVersion = detectDashboardVersion(value)
     const application = sourceVersion === 3
-      ? cloneJson(value as DashboardApplicationV3)
+      ? migrateDashboardV3Identity(value as DashboardApplicationV3, warnings)
       : migrateDashboardV2ToV3(value, generatedIds, warnings)
 
     const validation = validateDashboardApplicationV3(application)

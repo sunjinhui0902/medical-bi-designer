@@ -34,3 +34,24 @@
 .runtime-button-group button { border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 6px 9px; cursor: pointer; }
 .runtime-control-actions button:first-child,
 .runtime-button-group button.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+.runtime-control-actions .clear-control-button { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: #94a3b8; background: transparent; border-color: transparent; border-radius: 50%; font-size: 15px; line-height: 1; }
+.runtime-control-actions .clear-control-button:hover { color: #b42318; background: #fff1f0; border-color: #fecaca; }
+
+.library-parameter-section { padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.library-help { margin: 6px 0 10px; color: #64748b; font-size: 10px; line-height: 1.5; }
+.parameter-control-catalog { display: grid; gap: 6px; }
+.parameter-control-catalog > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
+.parameter-control-catalog span { display: grid; min-width: 0; }
+.parameter-control-catalog b { overflow: hidden; color: #334155; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.parameter-control-catalog small { overflow: hidden; color: #94a3b8; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.parameter-control-catalog button { flex: 0 0 auto; padding: 4px 7px; color: #1477c9; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 5px; font-size: 9px; cursor: pointer; }
+.parameter-control-catalog button:disabled { color: #64748b; background: #f1f5f9; border-color: #e2e8f0; cursor: default; }
+.parameter-empty-link { display: block; padding: 8px; color: #1477c9; font-size: 10px; text-align: center; background: #eff6ff; border-radius: 6px; }
+.active-control-list { display: grid; gap: 5px; margin-top: 10px; }
+.active-control-list > b { color: #64748b; font-size: 9px; }
+.active-control-list button { display: flex; justify-content: space-between; padding: 5px 7px; color: #475569; background: #f8fafc; border: 0; border-radius: 4px; font-size: 9px; cursor: pointer; }
+.active-control-list i { color: #b42318; font-style: normal; }
+.active-control-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px; padding: 4px 5px; color: #475569; background: #f8fafc; border-radius: 4px; font-size: 9px; }
+.active-control-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.active-control-row > button { padding: 3px 5px; border: 1px solid #dbe5ef; background: #fff; }
+.active-control-row > button:last-child { color: #b42318; }

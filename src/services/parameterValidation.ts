@@ -71,6 +71,7 @@ function validateDefaultValue(
 function validateSource(
   parameter: ParameterDefinitionV3,
   issues: ParameterValidationIssueV3[],
+  parameters: ParameterDefinitionV3[],
 ): void {
   if (parameter.source.kind === 'dictionary') {
     if (!findBuiltinDictionaryV3(parameter.source.dictionaryCode)) {
@@ -92,6 +93,16 @@ function validateSource(
     }
     if (!parameter.source.valueField.trim() || !parameter.source.labelField.trim()) {
       issue(issues, '/source', 'datasetFieldsRequired', '选项值字段和名称字段不能为空')
+    }
+    const dependencyIds = new Set<string>()
+    const datasetCodes = new Set<string>()
+    for (const [index, dependency] of (parameter.source.dependencies ?? []).entries()) {
+      if (dependency.parameterId === parameter.id) issue(issues, `/source/dependencies/${index}/parameterId`, 'selfDependency', '参数不能依赖自身')
+      if (!parameters.some((item) => item.id === dependency.parameterId)) issue(issues, `/source/dependencies/${index}/parameterId`, 'dependencyNotFound', '依赖参数不存在')
+      if (dependencyIds.has(dependency.parameterId)) issue(issues, `/source/dependencies/${index}/parameterId`, 'duplicateDependency', '同一依赖参数不能重复')
+      if (!PARAMETER_CODE_PATTERN.test(dependency.datasetParameterCode) || datasetCodes.has(dependency.datasetParameterCode)) issue(issues, `/source/dependencies/${index}/datasetParameterCode`, 'invalidDatasetParameterCode', '数据集参数编码格式无效或重复')
+      dependencyIds.add(dependency.parameterId)
+      datasetCodes.add(dependency.datasetParameterCode)
     }
     return
   }
@@ -176,7 +187,7 @@ export function validateParameterDefinitionV3(
   }
 
   validateDefaultValue(parameter, issues)
-  validateSource(parameter, issues)
+  validateSource(parameter, issues, parameters)
 
   return { valid: issues.length === 0, issues }
 }
@@ -190,5 +201,23 @@ export function validateParameterCollectionV3(
       path: `/parameters/${index}${item.path}`,
     })),
   )
+  const byId = new Map(parameters.map((parameter) => [parameter.id, parameter]))
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const visit = (id: string): void => {
+    if (visiting.has(id)) {
+      issue(issues, '/parameters', 'dependencyCycle', `参数依赖存在循环：${id}`)
+      return
+    }
+    if (visited.has(id)) return
+    visiting.add(id)
+    const parameter = byId.get(id)
+    if (parameter?.source.kind === 'dataset') {
+      for (const dependency of parameter.source.dependencies ?? []) visit(dependency.parameterId)
+    }
+    visiting.delete(id)
+    visited.add(id)
+  }
+  parameters.forEach((parameter) => visit(parameter.id))
   return { valid: issues.length === 0, issues }
 }

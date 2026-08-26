@@ -108,10 +108,13 @@
 .step4-shell.is-preview .component-panel,
 .step4-shell.is-preview .property-panel,
 .step4-shell.is-preview .canvas-meta { display: none; }
-.step4-shell.is-preview .canvas-stage { grid-template-rows: minmax(0, 1fr); }
-.step4-shell.is-preview .artboard-wrap { display: flex; justify-content: center; padding: 34px; }
-.step4-shell.is-preview .interactive-artboard { min-height: max-content; }
-.step4-shell.is-preview .interactive-canvas { border-color: transparent; }
+.step4-shell.is-preview .canvas-stage { grid-template-rows: auto minmax(0, 1fr); }
+.step4-shell.is-preview .artboard-wrap { display:flex;justify-content:center;align-items:flex-start;padding:12px;overflow-x:hidden;background:#030a12; }
+.step4-shell.is-preview .interactive-artboard { min-height:0;overflow:hidden; }
+.step4-shell.is-preview .artboard-heading { display:none; }
+.step4-shell.is-preview .interactive-canvas { margin-top:0;border-color:transparent; }
+
+.interaction-summary-panel{display:flex;flex-direction:column;gap:12px}.interaction-summary-head{display:flex;align-items:center;justify-content:space-between;padding:12px;border:1px solid #dbe6ee;border-radius:7px;background:#f6fafc}.interaction-summary-head>div{display:flex;align-items:baseline;gap:6px}.interaction-summary-head b{font-size:24px;color:#1477c9}.interaction-summary-head span{font-size:11px;color:#71808e}.interaction-summary-head button{border:0;border-radius:5px;background:#1477c9;color:#fff;padding:8px 10px;font-size:11px}.interaction-rule-list{display:flex;flex-direction:column;gap:8px}.interaction-rule-list article{border:1px solid #d9e5ed;border-left:3px solid #1477c9;border-radius:6px;padding:10px;background:#fff}.interaction-rule-list article.disabled{opacity:.55;border-left-color:#94a3b8}.interaction-rule-list header{display:flex;align-items:center;justify-content:space-between}.interaction-rule-list header b{font-size:12px;color:#203246}.interaction-rule-list header span{font-size:9px;color:#16806a;background:#e8f7f3;border-radius:10px;padding:2px 6px}.interaction-rule-list p{margin:7px 0 0;padding:6px 8px;border-radius:4px;background:#f3f7fa;color:#475b6c;font-size:10px}.interaction-empty-state{padding:18px;border:1px dashed #cbd8e2;border-radius:7px;color:#71808e;font-size:11px;line-height:1.6;text-align:center}.interaction-preview-tip{margin:0;color:#71808e;font-size:10px;line-height:1.6}
 .step4-shell.is-preview .design-component { cursor: default; }
 
 @media (max-width: 900px) {

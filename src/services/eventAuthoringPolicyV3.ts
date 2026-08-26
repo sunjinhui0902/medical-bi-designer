@@ -4,6 +4,7 @@ import type { DashboardApplicationV3, DashboardComponentV3, EventNameV3 } from '
 export type EventOwnerV3 =
   | { kind: 'page'; pageId: string; pageType: 'standard' | 'dialog' }
   | { kind: 'component'; pageId: string; pageType: 'standard' | 'dialog'; componentId: string; componentType: ComponentType }
+  | { kind: 'control'; pageId: string; pageType: 'standard' | 'dialog'; controlId: string; controlType: string }
 
 export interface EventFieldCapabilityV3 {
   path: string
@@ -13,11 +14,13 @@ export interface EventFieldCapabilityV3 {
 export interface ResolvedEventOwnerV3 {
   owner: EventOwnerV3
   component?: DashboardComponentV3
+  control?: DashboardApplicationV3['pages'][number]['controls'][number]
 }
 
 const PAGE_EVENTS: EventNameV3[] = ['pageEnter']
 const COMPONENT_EVENTS: EventNameV3[] = ['click', 'doubleClick']
 const TABLE_EVENTS: EventNameV3[] = ['click', 'doubleClick', 'rowClick']
+const CONTROL_EVENTS: EventNameV3[] = ['valueChange']
 const DANGEROUS_POINTER_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor'])
 
 export function escapeJsonPointerSegmentV3(segment: string): string {
@@ -39,6 +42,11 @@ export function resolveEventOwnerV3(application: DashboardApplicationV3, snapsho
   if (snapshot.kind === 'page') {
     return { owner: { kind: 'page', pageId: page.id, pageType: page.type } }
   }
+  if (snapshot.kind === 'control') {
+    const control = page.controls.find((candidate) => candidate.id === snapshot.controlId)
+    if (!control) throw new Error(`参数控件不存在：${snapshot.controlId}`)
+    return { owner: { kind: 'control', pageId: page.id, pageType: page.type, controlId: control.id, controlType: control.type }, control }
+  }
   const component = page.components.find((candidate) => candidate.id === snapshot.componentId)
   if (!component) throw new Error(`组件不存在：${snapshot.componentId}`)
   return {
@@ -52,6 +60,7 @@ export function resolveEventOwnerV3(application: DashboardApplicationV3, snapsho
 
 export function authorableEventNamesV3(owner: EventOwnerV3): EventNameV3[] {
   if (owner.kind === 'page') return [...PAGE_EVENTS]
+  if (owner.kind === 'control') return [...CONTROL_EVENTS]
   return [...(owner.componentType === 'table' ? TABLE_EVENTS : COMPONENT_EVENTS)]
 }
 
@@ -62,6 +71,11 @@ export function eventFieldCapabilitiesV3(
   if (event === 'pageEnter') return []
   if (event === 'valueChange') return [{ path: '/value', label: '控件值' }]
   if (!component) return []
+  if (component.type === 'tabs') return [
+    { path: '/datum/tab_id', label: '页签 ID' },
+    { path: '/datum/tab_label', label: '页签名称' },
+    { path: '/datum/tab_value', label: '页签值' },
+  ]
   const prefix = event === 'rowClick' ? '/row/' : '/datum/'
   return boundFields(component).map((field) => ({ path: `${prefix}${escapeJsonPointerSegmentV3(field)}`, label: field }))
 }

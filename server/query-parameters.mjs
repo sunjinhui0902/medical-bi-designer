@@ -3,7 +3,19 @@ const SQL_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 const TYPES = new Set(['string', 'number', 'date', 'dateRange', 'singleSelect', 'multiSelect'])
 const OPERATORS = new Set(['eq', 'in', 'between'])
 const EMPTY_POLICIES = new Set(['omit', 'null', 'emptyString', 'reject'])
-const EXECUTION_REQUEST_KEYS = new Set(['parameters', 'limit', 'view'])
+const EXECUTION_REQUEST_KEYS = new Set(['parameters', 'limit', 'view', 'pagination'])
+const PAGINATION_KEYS = new Set(['offset', 'limit', 'includeTotal'])
+
+export function normalizeDatasetPagination(value) {
+  if (value === undefined) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('分页配置必须是对象')
+  const unknown = Object.keys(value).filter((key) => !PAGINATION_KEYS.has(key))
+  if (unknown.length) throw new Error(`分页配置包含未声明字段：${unknown.join('、')}`)
+  if (!Number.isInteger(value.offset) || value.offset < 0 || value.offset > 1_000_000) throw new Error('分页 offset 必须是 0 到 1000000 的整数')
+  if (!Number.isInteger(value.limit) || value.limit < 1 || value.limit > 200) throw new Error('分页 limit 必须是 1 到 200 的整数')
+  if (value.includeTotal !== undefined && typeof value.includeTotal !== 'boolean') throw new Error('分页 includeTotal 必须是布尔值')
+  return { offset: value.offset, limit: value.limit, includeTotal: value.includeTotal !== false }
+}
 
 export function validateDatasetExecutionRequest(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('数据集执行请求必须是对象')
@@ -12,10 +24,12 @@ export function validateDatasetExecutionRequest(body) {
   if (body.parameters !== undefined && (!body.parameters || typeof body.parameters !== 'object' || Array.isArray(body.parameters))) {
     throw new Error('查询参数必须是对象')
   }
+  if (body.pagination !== undefined && body.limit !== undefined) throw new Error('分页请求不能同时提交顶层 limit')
   return {
     parameters: body.parameters ?? {},
     limit: body.limit,
     ...(body.view === undefined ? {} : { view: body.view }),
+    ...(body.pagination === undefined ? {} : { pagination: normalizeDatasetPagination(body.pagination) }),
   }
 }
 

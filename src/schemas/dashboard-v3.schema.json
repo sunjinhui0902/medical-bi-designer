@@ -31,13 +31,14 @@
   "additionalProperties": false,
   "$defs": {
     "nonEmptyString": { "type": "string", "minLength": 1 },
+    "safeStyleToken": { "type": "string", "maxLength": 500, "pattern": "^(?!.*(?:[uU][rR][lL]\\s*\\(|[vV][aA][rR]\\s*\\(|[eE][xX][pP][rR][eE][sS][sS][iI][oO][nN]\\s*\\(|@[iI][mM][pP][oO][rR][tT]|[jJ][aA][vV][aA][sS][cC][rR][iI][pP][tT]:|[dD][aA][tT][aA]:|[;{}'\"\\\\])).*$" },
     "canvas": {
       "type": "object",
       "required": ["width", "height", "background", "showGrid", "gridSize"],
       "properties": {
-        "width": { "type": "number", "exclusiveMinimum": 0 },
-        "height": { "type": "number", "exclusiveMinimum": 0 },
-        "background": { "type": "string" },
+        "width": { "type": "number", "minimum": 320, "maximum": 1920 },
+        "height": { "type": "number", "minimum": 240, "maximum": 6000 },
+        "background": { "$ref": "#/$defs/safeStyleToken" },
         "showGrid": { "type": "boolean" },
         "gridSize": { "type": "number", "exclusiveMinimum": 0 }
       },
@@ -49,7 +50,7 @@
       "properties": {
         "show": { "type": "boolean" },
         "fontSize": { "type": "number", "exclusiveMinimum": 0 },
-        "color": { "type": "string" },
+        "color": { "$ref": "#/$defs/safeStyleToken" },
         "fontWeight": { "type": "number" },
         "align": { "enum": ["left", "center", "right"] }
       },
@@ -77,9 +78,94 @@
       "required": ["id"],
       "properties": {
         "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "enum": ["kpi", "line", "bar", "pie", "table", "text", "image", "icon", "decoration", "map", "tabs", "income", "outpatient", "ranking", "bed", "area", "combo", "scatter", "bubble"] },
+        "textConfig": { "$ref": "#/$defs/textConfig" },
+        "imageConfig": { "$ref": "#/$defs/imageConfig" },
+        "iconConfig": { "$ref": "#/$defs/iconConfig" },
+        "decorationConfig": { "$ref": "#/$defs/decorationConfig" },
+        "mapConfig": { "$ref": "#/$defs/mapConfig" },
+        "tableConfig": { "$ref": "#/$defs/tableConfig" },
+        "kpiConfig": { "type": "object", "properties": { "progressColor": { "$ref": "#/$defs/safeStyleToken" } }, "additionalProperties": true },
+        "tabsConfig": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "object", "properties": { "background": { "$ref": "#/$defs/safeStyleToken" } }, "additionalProperties": true } } }, "additionalProperties": true },
         "events": { "type": "array", "items": { "$ref": "#/$defs/eventBinding" } }
       },
       "additionalProperties": true
+    },
+    "tableConditionalRule": {
+      "type": "object",
+      "required": ["id", "field", "operator"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "field": { "$ref": "#/$defs/nonEmptyString" },
+        "operator": { "enum": ["eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "between", "isNull", "notNull"] },
+        "value": { "$ref": "#/$defs/jsonValue" },
+        "backgroundColor": { "$ref": "#/$defs/safeStyleToken" },
+        "textColor": { "$ref": "#/$defs/safeStyleToken" },
+        "badge": { "enum": ["normal", "warning", "danger"] }
+      },
+      "additionalProperties": false
+    },
+    "tableConfig": {
+      "type": "object",
+      "required": ["columns"],
+      "properties": {
+        "columns": { "type": "array" },
+        "striped": { "type": "boolean" },
+        "showHeader": { "type": "boolean" },
+        "fixedHeader": { "type": "boolean" },
+        "pagination": {
+          "type": "object",
+          "required": ["enabled", "mode", "pageSize", "showTotal"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": { "enum": ["client", "server"] },
+            "pageSize": { "type": "integer", "minimum": 1, "maximum": 200 },
+            "showTotal": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "conditionalRules": { "type": "array", "items": { "$ref": "#/$defs/tableConditionalRule" } }
+      },
+      "additionalProperties": true
+    },
+    "textConfig": {
+      "type": "object", "required": ["content", "color", "fontSize", "fontWeight", "align", "verticalAlign", "lineHeight"],
+      "properties": { "content": { "type": "string", "maxLength": 20000 }, "color": { "$ref": "#/$defs/safeStyleToken" }, "fontSize": { "type": "number", "minimum": 8, "maximum": 120 }, "fontWeight": { "type": "number", "minimum": 100, "maximum": 900 }, "align": { "enum": ["left", "center", "right"] }, "verticalAlign": { "enum": ["top", "center", "bottom"] }, "lineHeight": { "type": "number", "minimum": 1, "maximum": 3 } }, "additionalProperties": false
+    },
+    "imageConfig": {
+      "type": "object", "required": ["source", "alt", "objectFit", "opacity"],
+      "properties": { "source": { "type": "string", "pattern": "^(|data:image/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+)$" }, "alt": { "type": "string", "maxLength": 500 }, "objectFit": { "enum": ["contain", "cover", "fill"] }, "opacity": { "type": "number", "minimum": 0, "maximum": 1 } }, "additionalProperties": false
+    },
+    "iconConfig": {
+      "type": "object", "required": ["name", "color", "size", "strokeWidth"],
+      "properties": { "name": { "enum": ["hospital", "activity", "warning", "check", "location", "users"] }, "color": { "$ref": "#/$defs/safeStyleToken" }, "size": { "type": "number", "minimum": 12, "maximum": 256 }, "strokeWidth": { "type": "number", "minimum": 1, "maximum": 4 } }, "additionalProperties": false
+    },
+    "decorationConfig": {
+      "type": "object", "required": ["shape", "fill", "borderColor", "borderWidth", "borderRadius", "direction"],
+      "properties": { "shape": { "enum": ["rectangle", "line", "divider"] }, "fill": { "$ref": "#/$defs/safeStyleToken" }, "borderColor": { "$ref": "#/$defs/safeStyleToken" }, "borderWidth": { "type": "number", "minimum": 0, "maximum": 20 }, "borderRadius": { "type": "number", "minimum": 0, "maximum": 100 }, "direction": { "enum": ["horizontal", "vertical"] } }, "additionalProperties": false
+    },
+    "geoJsonGeometry": {
+      "type": "object", "required": ["type", "coordinates"], "properties": { "type": { "enum": ["Polygon", "MultiPolygon"] }, "coordinates": { "type": "array", "minItems": 1 } }, "additionalProperties": false
+    },
+    "mapConfig": {
+      "type": "object",
+      "required": ["regionCodeProperty", "regionNameProperty", "regionCodeField", "valueField", "longitudeField", "latitudeField", "pointLabelField", "emptyColor", "lowColor", "highColor", "borderColor", "pointColor", "showLegend", "showPoints"],
+      "properties": {
+        "geoJson": {
+          "type": "object", "required": ["type", "features"],
+          "properties": {
+            "type": { "const": "FeatureCollection" },
+            "features": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["type", "properties", "geometry"], "properties": { "type": { "const": "Feature" }, "properties": { "type": "object" }, "geometry": { "$ref": "#/$defs/geoJsonGeometry" } }, "additionalProperties": false } }
+          },
+          "additionalProperties": false
+        },
+        "regionCodeProperty": { "$ref": "#/$defs/nonEmptyString" }, "regionNameProperty": { "$ref": "#/$defs/nonEmptyString" },
+        "regionCodeField": { "$ref": "#/$defs/nonEmptyString" }, "valueField": { "$ref": "#/$defs/nonEmptyString" },
+        "longitudeField": { "$ref": "#/$defs/nonEmptyString" }, "latitudeField": { "$ref": "#/$defs/nonEmptyString" }, "pointLabelField": { "$ref": "#/$defs/nonEmptyString" },
+        "emptyColor": { "$ref": "#/$defs/safeStyleToken" }, "lowColor": { "$ref": "#/$defs/safeStyleToken" }, "highColor": { "$ref": "#/$defs/safeStyleToken" }, "borderColor": { "$ref": "#/$defs/safeStyleToken" }, "pointColor": { "$ref": "#/$defs/safeStyleToken" },
+        "showLegend": { "type": "boolean" }, "showPoints": { "type": "boolean" }
+      },
+      "additionalProperties": false
     },
     "valueExpression": {
       "oneOf": [
@@ -384,7 +470,19 @@
             "kind": { "const": "dataset" },
             "datasetId": { "$ref": "#/$defs/nonEmptyString" },
             "valueField": { "$ref": "#/$defs/nonEmptyString" },
-            "labelField": { "$ref": "#/$defs/nonEmptyString" }
+            "labelField": { "$ref": "#/$defs/nonEmptyString" },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["parameterId", "datasetParameterCode"],
+                "properties": {
+                  "parameterId": { "$ref": "#/$defs/nonEmptyString" },
+                  "datasetParameterCode": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+                },
+                "additionalProperties": false
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -407,7 +505,7 @@
       "required": ["id", "type", "parameterIds", "position", "styleConfig", "interaction"],
       "properties": {
         "id": { "$ref": "#/$defs/nonEmptyString" },
-        "type": { "enum": ["buttonGroup", "singleSelect", "multiSelect", "date", "dateRange"] },
+        "type": { "enum": ["input", "buttonGroup", "singleSelect", "multiSelect", "date", "dateRange"] },
         "parameterIds": {
           "type": "array",
           "minItems": 1,
@@ -416,6 +514,7 @@
         },
         "position": { "$ref": "#/$defs/position" },
         "styleConfig": { "type": "object" },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/eventBinding" } },
         "interaction": {
           "type": "object",
           "required": ["submitMode", "clearable"],
@@ -491,7 +590,17 @@
       "required": ["id", "tokens"],
       "properties": {
         "id": { "$ref": "#/$defs/nonEmptyString" },
-        "tokens": { "type": "object" }
+        "tokens": {
+          "type": "object",
+          "properties": {
+            "canvasBackground": { "$ref": "#/$defs/safeStyleToken" }, "panelBackground": { "$ref": "#/$defs/safeStyleToken" }, "panelBorder": { "$ref": "#/$defs/safeStyleToken" },
+            "panelRadius": { "type": "number", "minimum": 0, "maximum": 80 }, "panelShadow": { "$ref": "#/$defs/safeStyleToken" },
+            "textPrimary": { "$ref": "#/$defs/safeStyleToken" }, "textSecondary": { "$ref": "#/$defs/safeStyleToken" },
+            "chartPalette": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/safeStyleToken" } },
+            "statusNormal": { "$ref": "#/$defs/safeStyleToken" }, "statusWarning": { "$ref": "#/$defs/safeStyleToken" }, "statusDanger": { "$ref": "#/$defs/safeStyleToken" }
+          },
+          "additionalProperties": true
+        }
       },
       "additionalProperties": true
     },

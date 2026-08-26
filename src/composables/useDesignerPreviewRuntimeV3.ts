@@ -28,6 +28,8 @@ export function useDesignerPreviewRuntimeV3(options: {
   }
   const pageChanged = async () => { await start() }
   const componentClick = async (componentId: string, datum: JsonObjectV3 = {}, pageId = options.activePageId.value) => ready.value ? runtime?.triggerComponentClick(pageId, componentId, datum) ?? null : null
+  const componentDoubleClick = async (componentId: string, datum: JsonObjectV3 = {}, pageId = options.activePageId.value) => ready.value ? runtime?.triggerComponentDoubleClick(pageId, componentId, datum) ?? null : null
+  const controlValueChange = async (controlId: string, value: import('../models/dashboard-v3.ts').JsonValueV3, pageId = options.activePageId.value) => ready.value ? runtime?.triggerControlValueChange(pageId, controlId, value) ?? null : null
   const componentRowClick = async (componentId: string, row: JsonObjectV3, pageId = options.activePageId.value) => ready.value ? runtime?.triggerComponentRowClick?.(pageId, componentId, row) ?? null : null
   const dismissDialog = (reason: 'button' | 'escape' | 'backdrop') => runtime?.dismissDialog(reason)
   const pageBack = () => runtime?.pageBack()
@@ -36,5 +38,5 @@ export function useDesignerPreviewRuntimeV3(options: {
   const drillBack = (pathId: string) => runtime?.drillBack(pathId)
   const moveDialog = (instanceId: string, x: number, y: number) => runtime?.moveDialog(instanceId, x, y)
   const resizeDialog = (instanceId: string, direction: DialogResizeDirectionV3, deltaX: number, deltaY: number) => runtime?.resizeDialog(instanceId, direction, deltaX, deltaY)
-  return { status, ready, start, stop, pageChanged, componentClick, componentRowClick, pageBack, clearInteractions, clearLinkage, drillBack, dismissDialog, moveDialog, resizeDialog, invalidate: stop }
+  return { status, ready, start, stop, pageChanged, componentClick, componentDoubleClick, controlValueChange, componentRowClick, pageBack, clearInteractions, clearLinkage, drillBack, dismissDialog, moveDialog, resizeDialog, invalidate: stop }
 }

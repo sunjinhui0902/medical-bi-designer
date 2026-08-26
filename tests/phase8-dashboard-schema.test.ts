@@ -64,3 +64,18 @@ test('Phase8 参数定义允许数据集选项来源', () => {
 
   assert.equal(validateDashboardApplicationV3(application).valid, true)
 })
+
+test('参数文本输入控件通过 V3 Schema 与语义校验', () => {
+  const application = createDefaultDashboardApplicationV3()
+  application.parameters.push({
+    id: 'parameter-keyword', code: 'keyword', name: '关键词', type: 'string', scope: 'application', required: false,
+    source: { kind: 'static', options: [] },
+  })
+  application.pages[0].controls.push({
+    id: 'control-keyword', type: 'input', parameterIds: ['parameter-keyword'],
+    position: { x: 20, y: 20, width: 220, height: 44, zIndex: 1 }, styleConfig: {},
+    interaction: { submitMode: 'immediate', clearable: true },
+  })
+
+  assert.equal(validateDashboardApplicationV3(application).valid, true)
+})

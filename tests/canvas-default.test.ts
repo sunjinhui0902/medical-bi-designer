@@ -23,3 +23,23 @@ test('已保存看板继续保留原画布尺寸', () => {
   assert.equal(dashboard.canvas.width, 960)
   assert.equal(dashboard.canvas.height, 540)
 })
+
+test('迁移保留页签组件配置', () => {
+  const dashboard = migrateDashboard({
+    version: 2,
+    name: '页签看板',
+    canvas: { width: 1200, height: 600 },
+    components: [{
+      id: 'tabs-main', type: 'tabs', title: '分析视图',
+      position: { x: 0, y: 0, width: 420, height: 72, zIndex: 1 },
+      dataConfig: { version: 2, sourceKind: 'mock', datasetId: '', dimensions: [], measures: [], filters: [], sort: [], limit: 200 },
+      styleConfig: {},
+      tabsConfig: { items: [{ id: 'overview', label: '概览', value: 'overview' }], activeItemId: 'overview', alignment: 'stretch' },
+    }],
+  })
+
+  assert.deepEqual(dashboard.components[0].tabsConfig, {
+    items: [{ id: 'overview', label: '概览', value: 'overview', componentIds: [], visible: true, padding: 12, gap: 8, background: '#ffffff' }],
+    activeItemId: 'overview', alignment: 'stretch', titlePosition: 'top', stylePreset: 'default', titleSize: 38,
+  })
+})

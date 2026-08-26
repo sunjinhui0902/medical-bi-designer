@@ -1,6 +1,6 @@
 import type { ComponentDataConfig } from './bi'
 
-export type ComponentType = 'kpi' | 'line' | 'bar' | 'pie' | 'table' | 'text' | 'income' | 'outpatient' | 'ranking' | 'bed' | 'area' | 'combo' | 'scatter' | 'bubble'
+export type ComponentType = 'kpi' | 'line' | 'bar' | 'pie' | 'table' | 'text' | 'image' | 'icon' | 'decoration' | 'map' | 'tabs' | 'income' | 'outpatient' | 'ranking' | 'bed' | 'area' | 'combo' | 'scatter' | 'bubble'
 
 export interface Position {
   x: number
@@ -16,6 +16,75 @@ export interface ComponentStyle {
   titleSize: number
   titleWeight: number
   titleVisible: boolean
+  borderColor?: string
+  borderWidth?: number
+  borderRadius?: number
+  shadow?: string
+  opacity?: number
+}
+
+export interface TextConfig {
+  content: string
+  color: string
+  fontSize: number
+  fontWeight: number
+  align: 'left' | 'center' | 'right'
+  verticalAlign: 'top' | 'center' | 'bottom'
+  lineHeight: number
+}
+
+export interface ImageConfig {
+  /** Only locally imported data URLs are accepted by the editor/runtime. */
+  source: string
+  alt: string
+  objectFit: 'contain' | 'cover' | 'fill'
+  opacity: number
+}
+
+export type SafeIconName = 'hospital' | 'activity' | 'warning' | 'check' | 'location' | 'users'
+export interface IconConfig { name: SafeIconName; color: string; size: number; strokeWidth: number }
+
+export interface DecorationConfig {
+  shape: 'rectangle' | 'line' | 'divider'
+  fill: string
+  borderColor: string
+  borderWidth: number
+  borderRadius: number
+  direction: 'horizontal' | 'vertical'
+}
+
+export interface GeoJsonGeometry {
+  type: 'Polygon' | 'MultiPolygon'
+  coordinates: number[][][] | number[][][][]
+}
+
+export interface GeoJsonFeature {
+  type: 'Feature'
+  properties: Record<string, string | number | boolean | null>
+  geometry: GeoJsonGeometry
+}
+
+export interface GeoJsonFeatureCollection {
+  type: 'FeatureCollection'
+  features: GeoJsonFeature[]
+}
+
+export interface MapConfig {
+  geoJson?: GeoJsonFeatureCollection
+  regionCodeProperty: string
+  regionNameProperty: string
+  regionCodeField: string
+  valueField: string
+  longitudeField: string
+  latitudeField: string
+  pointLabelField: string
+  emptyColor: string
+  lowColor: string
+  highColor: string
+  borderColor: string
+  pointColor: string
+  showLegend: boolean
+  showPoints: boolean
 }
 
 export interface AnalysisConfig {
@@ -83,10 +152,52 @@ export interface TableColumnConfig {
   summary: TableColumnSummary
 }
 
+export type TableRuleOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'in' | 'between' | 'isNull' | 'notNull'
+
+export interface TableConditionalRuleConfig {
+  id: string
+  field: string
+  operator: TableRuleOperator
+  value?: unknown
+  backgroundColor?: string
+  textColor?: string
+  badge?: 'normal' | 'warning' | 'danger'
+}
+
+export interface TablePaginationConfig {
+  enabled: boolean
+  mode: 'client' | 'server'
+  pageSize: number
+  showTotal: boolean
+}
+
 export interface TableConfig {
   columns: TableColumnConfig[]
   striped: boolean
   showHeader: boolean
+  fixedHeader?: boolean
+  pagination?: TablePaginationConfig
+  conditionalRules?: TableConditionalRuleConfig[]
+}
+
+export interface TabItemConfig {
+  id: string
+  label: string
+  value: string
+  componentIds: string[]
+  visible: boolean
+  padding: number
+  gap: number
+  background: string
+}
+
+export interface TabsConfig {
+  items: TabItemConfig[]
+  activeItemId: string
+  alignment: 'left' | 'center' | 'stretch'
+  titlePosition: 'top' | 'bottom' | 'left' | 'right'
+  stylePreset: 'default' | 'card' | 'bookmark' | 'menu'
+  titleSize: number
 }
 
 export interface DashboardComponent {
@@ -99,6 +210,12 @@ export interface DashboardComponent {
   analysisConfig?: AnalysisConfig
   kpiConfig?: KpiConfig
   tableConfig?: TableConfig
+  tabsConfig?: TabsConfig
+  textConfig?: TextConfig
+  imageConfig?: ImageConfig
+  iconConfig?: IconConfig
+  decorationConfig?: DecorationConfig
+  mapConfig?: MapConfig
 }
 
 export interface CanvasConfig {

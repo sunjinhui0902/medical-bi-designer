@@ -16,7 +16,8 @@ button, input { font: inherit; }
 .designer-shell {
   display: grid;
   grid-template-rows: 68px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   background: var(--stage);
 }
@@ -82,7 +83,7 @@ button, input { font: inherit; }
 }
 .component-search:focus-within { color: var(--brand); background: #fff; border-color: #9bc9ec; box-shadow: 0 0 0 3px rgba(20,119,201,.09); }
 .component-search input { width: 100%; height: 36px; padding: 0; color: var(--ink); font-size: 12px; background: transparent; border: 0; outline: 0; }
-.component-groups { flex: 1; min-height: 0; padding: 5px 16px 18px; overflow-y: auto; }
+.component-groups { flex: 1 1 0; height: 0; min-height: 0; padding: 5px 16px 18px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .component-groups section { padding-top: 15px; }
 .component-groups h2 { display:flex;align-items:center;justify-content:space-between;margin: 0 0 7px; color: #73808d; font-size: 10px; }
 .component-groups h2 button{padding:2px 5px;color:#1477c9;font-size:9px;background:#fff;border:1px solid #d7e0e8;border-radius:4px}

@@ -5,6 +5,8 @@ import type {
   EventBindingV3,
   ValueExpressionV3,
 } from '../models/dashboard-v3'
+import { buildParameterDependencyDagV3 } from './parameterOptionsRuntimeV3.ts'
+import { isSafeStyleTokenV3 } from './safeStyleV3.ts'
 
 export interface DashboardValidationIssueV3 {
   path: string
@@ -111,6 +113,13 @@ function reservedInteractionStateIssues(value: unknown): DashboardValidationIssu
 
 function semanticIssues(application: DashboardApplicationV3): DashboardValidationIssueV3[] {
   const issues: DashboardValidationIssueV3[] = []
+  const checkStyle = (value: unknown, path: string): void => {
+    if (value !== undefined && !isSafeStyleTokenV3(value)) issues.push({ path, keyword: 'safeStyleToken', message: '样式只允许本地颜色、渐变或阴影，不得引用远程资源或任意 CSS' })
+  }
+  for (const [key, value] of Object.entries(application.theme.tokens)) {
+    if (typeof value === 'string') checkStyle(value, `/theme/tokens/${key}`)
+    else if (Array.isArray(value)) value.forEach((item, index) => checkStyle(item, `/theme/tokens/${key}/${index}`))
+  }
   const pageIds = new Set(application.pages.map((page) => page.id))
   const pageById = new Map(application.pages.map((page) => [page.id, page]))
   const pageCodes = new Set(application.pages.map((page) => page.code))
@@ -166,6 +175,11 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
       message: '参数 ID 在同一应用内不能重复',
     })
   }
+  try {
+    buildParameterDependencyDagV3(application.parameters)
+  } catch (reason) {
+    issues.push({ path: '/parameters', keyword: 'parameterDependencyDag', message: reason instanceof Error ? reason.message : '参数依赖配置无效' })
+  }
 
   const controlIds = new Set<string>()
   const componentIds = new Set<string>()
@@ -216,7 +230,7 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
     })
   }
 
-  const validateEvents = (events: EventBindingV3[], path: string, ownerPageId: string, ownerKind: 'page' | 'component'): void => {
+  const validateEvents = (events: EventBindingV3[], path: string, ownerPageId: string, ownerKind: 'page' | 'component' | 'control'): void => {
     events.forEach((event, eventIndex) => {
       const eventPath = `${path}/${eventIndex}`
       if (eventIds.has(event.id)) {
@@ -280,20 +294,67 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
   }
 
   for (const [pageIndex, page] of application.pages.entries()) {
+    checkStyle(page.canvas.background, `/pages/${pageIndex}/canvas/background`)
+    checkStyle(page.titleStyle.color, `/pages/${pageIndex}/titleStyle/color`)
     for (const [componentIndex, component] of page.components.entries()) {
       const path = `/pages/${pageIndex}/components/${componentIndex}`
+      checkStyle(component.styleConfig?.background, `${path}/styleConfig/background`)
+      checkStyle(component.styleConfig?.borderColor, `${path}/styleConfig/borderColor`)
+      checkStyle(component.styleConfig?.shadow, `${path}/styleConfig/shadow`)
+      checkStyle(component.styleConfig?.titleColor, `${path}/styleConfig/titleColor`)
+      checkStyle(component.textConfig?.color, `${path}/textConfig/color`)
+      checkStyle(component.iconConfig?.color, `${path}/iconConfig/color`)
+      checkStyle(component.kpiConfig?.progressColor, `${path}/kpiConfig/progressColor`)
+      checkStyle(component.decorationConfig?.fill, `${path}/decorationConfig/fill`)
+      checkStyle(component.decorationConfig?.borderColor, `${path}/decorationConfig/borderColor`)
+      if (component.mapConfig) {
+        for (const key of ['emptyColor', 'lowColor', 'highColor', 'borderColor', 'pointColor'] as const) checkStyle(component.mapConfig[key], `${path}/mapConfig/${key}`)
+      }
+      component.tableConfig?.conditionalRules?.forEach((rule, ruleIndex) => {
+        checkStyle(rule.backgroundColor, `${path}/tableConfig/conditionalRules/${ruleIndex}/backgroundColor`)
+        checkStyle(rule.textColor, `${path}/tableConfig/conditionalRules/${ruleIndex}/textColor`)
+      })
+      component.tabsConfig?.items.forEach((item, itemIndex) => checkStyle(item.background, `${path}/tabsConfig/items/${itemIndex}/background`))
       if (componentIds.has(component.id)) {
         issues.push({ path: `${path}/id`, keyword: 'uniqueComponentId', message: '组件 ID 在应用内不能重复' })
       }
       componentIds.add(component.id)
       componentPageIds.set(component.id, page.id)
     }
-    for (const binding of [...page.pageEvents, ...page.components.flatMap((component) => component.events ?? [])]) {
+    for (const binding of [...page.pageEvents, ...page.controls.flatMap((control) => control.events ?? []), ...page.components.flatMap((component) => component.events ?? [])]) {
       for (const action of binding.actions) declaredActionTypes.set(action.id, action.type)
     }
   }
 
   for (const [pageIndex, page] of application.pages.entries()) {
+    const pageComponentIds = new Set(page.components.map((component) => component.id))
+    const assignedComponentIds = new Set<string>()
+    for (const [componentIndex, component] of page.components.entries()) {
+      if (component.type !== 'tabs' || !component.tabsConfig) continue
+      const tabPath = `/pages/${pageIndex}/components/${componentIndex}/tabsConfig`
+      const itemIds = new Set<string>()
+      const visibleItemIds = new Set<string>()
+      for (const [itemIndex, item] of component.tabsConfig.items.entries()) {
+        const itemPath = `${tabPath}/items/${itemIndex}`
+        if (itemIds.has(item.id)) issues.push({ path: `${itemPath}/id`, keyword: 'uniqueTabItemId', message: '同一页签块内的内容页 ID 不能重复' })
+        itemIds.add(item.id)
+        if (item.visible !== false) visibleItemIds.add(item.id)
+        const localIds = new Set<string>()
+        for (const [referenceIndex, componentId] of (item.componentIds ?? []).entries()) {
+          const referencePath = `${itemPath}/componentIds/${referenceIndex}`
+          if (localIds.has(componentId)) issues.push({ path: referencePath, keyword: 'uniqueTabComponentReference', message: '同一内容页不能重复引用组件' })
+          localIds.add(componentId)
+          if (componentId === component.id) issues.push({ path: referencePath, keyword: 'tabSelfReference', message: '页签块不能引用自身' })
+          else if (!pageComponentIds.has(componentId)) issues.push({ path: referencePath, keyword: 'tabComponentReference', message: `页签内容组件不存在或不在同页：${componentId}` })
+          else if (page.components.find((candidate) => candidate.id === componentId)?.type === 'tabs') issues.push({ path: referencePath, keyword: 'tabNesting', message: '当前版本不支持页签块嵌套' })
+          if (assignedComponentIds.has(componentId)) issues.push({ path: referencePath, keyword: 'uniqueTabOwnership', message: '同一组件最多归属一个页签内容页' })
+          assignedComponentIds.add(componentId)
+        }
+      }
+      if (!itemIds.has(component.tabsConfig.activeItemId)) issues.push({ path: `${tabPath}/activeItemId`, keyword: 'tabDefaultReference', message: '默认页签必须引用现有内容页' })
+      if (!visibleItemIds.size) issues.push({ path: `${tabPath}/items`, keyword: 'tabVisibleItem', message: '页签块至少需要一个可见内容页' })
+      if (itemIds.has(component.tabsConfig.activeItemId) && !visibleItemIds.has(component.tabsConfig.activeItemId)) issues.push({ path: `${tabPath}/activeItemId`, keyword: 'tabDefaultVisible', message: '默认页签必须指向可见内容页' })
+    }
     for (const [controlIndex, control] of page.controls.entries()) {
       const path = `/pages/${pageIndex}/controls/${controlIndex}`
       if (controlIds.has(control.id)) {
@@ -305,6 +366,7 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
           issues.push({ path: `${path}/parameterIds`, keyword: 'parameterReference', message: `参数不存在：${parameterId}` })
         }
       }
+      validateEvents(control.events ?? [], `${path}/events`, page.id, 'control')
     }
     validateEvents(page.pageEvents, `/pages/${pageIndex}/pageEvents`, page.id, 'page')
     page.components.forEach((component, componentIndex) => {

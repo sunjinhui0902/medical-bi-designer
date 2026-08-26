@@ -5,6 +5,19 @@ import { fileURLToPath } from 'node:url'
 const examplePath = fileURLToPath(new URL('../../docs/02_V3架构/示例/dashboard-v3-phase10.json', import.meta.url))
 const example = JSON.parse(readFileSync(examplePath, 'utf8'))
 
+async function replaceDashboardFixture(page: import('@playwright/test').Page, application: unknown) {
+  await page.evaluate((value) => {
+    sessionStorage.setItem('phase10-fixture-override', '1')
+    const staleKeys: string[] = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (key === 'medical-bi-designer-workspace-v3' || key?.startsWith('medical-bi-designer-dashboard-v3::')) staleKeys.push(key)
+    }
+    staleKeys.forEach((key) => localStorage.removeItem(key))
+    localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(value))
+  }, application)
+}
+
 test.beforeEach(async ({ page }) => {
   const application = structuredClone(example)
   application.pages[0].components = application.pages[0].components.filter((component: { id: string }) => component.id === 'component-dialog')
@@ -65,7 +78,7 @@ test('P10.5 dialog page components execute closeDialog through EventBus', async 
 test('P10.6 browser adapter requests noopener/noreferrer and never exposes opener', async ({ page, context }) => {
   const application = structuredClone(example)
   application.pages[0].components = [{ ...application.pages[0].components.find((component: { id: string }) => component.id === 'component-dialog'), id: 'component-window', title: '新窗口', events: [{ id: 'event-window', enabled: true, event: 'click', actions: [{ id: 'action-window', type: 'openPageWindow', pageId: 'page-department' }] }] }]
-  await page.evaluate((value) => { sessionStorage.setItem('phase10-fixture-override', '1'); localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(value)) }, application); await page.reload(); await page.getByRole('button', { name: '预览', exact: true }).click()
+  await replaceDashboardFixture(page, application); await page.reload(); await page.getByRole('button', { name: '预览', exact: true }).click()
   const popupPromise = context.waitForEvent('page')
   await page.locator('[data-component-id="component-window"]').click()
   const popup = await popupPromise; await popup.waitForLoadState('domcontentloaded')
@@ -82,7 +95,8 @@ test('P10.7 designer exposes controlled Phase10 action authoring', async ({ page
   const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
   await panel.getByLabel('新建事件').selectOption('doubleClick')
   await panel.getByLabel('新增交互动作').selectOption('navigatePage')
-  await expect(panel.getByLabel('navigatePage 动作 JSON')).toHaveValue(/"history": "push"/)
+  await expect(panel.getByLabel('目标页面')).toBeVisible()
+  await expect(panel.getByLabel('历史记录')).toHaveValue('push')
 })
 
 test('P10.7 hospital to department to doctor preserves parameters, breadcrumbs, back and clear', async ({ page }) => {
@@ -103,7 +117,7 @@ test('P10.7 hospital to department to doctor preserves parameters, breadcrumbs, 
           : { label: 'linked' }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ fields: Object.keys(row).map((name) => ({ name, dataType: 'string' })), rows: [row], rowCount: 1 }) })
   })
-  await page.evaluate((value) => { sessionStorage.setItem('phase10-fixture-override', '1'); localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(value)) }, application)
+  await replaceDashboardFixture(page, application)
   await page.reload()
   await page.getByRole('button', { name: '预览', exact: true }).click()
   await page.locator('[data-component-id="component-hospital"] tbody tr').click()

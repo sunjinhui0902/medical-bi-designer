@@ -83,6 +83,65 @@ export function compileDatasetRuntimeQuery(dataset, parameterValues = {}, viewVa
   }
 }
 
+function withoutTrailingLimit(text) {
+  return text.replace(/ LIMIT \$\d+$/, '')
+}
+
+export function compileDatasetPagedQuery(dataset, parameterValues = {}, viewValue, pagination) {
+  if (!pagination) throw new Error('分页配置不能为空')
+  const runtime = compileDatasetRuntimeQuery(dataset, parameterValues, viewValue, pagination.limit)
+  if (runtime) {
+    const baseText = withoutTrailingLimit(runtime.text)
+    const predicateValues = runtime.values.slice(0, -1)
+    return {
+      ...runtime,
+      pagination,
+      text: `${baseText} LIMIT $${predicateValues.length + 1} OFFSET $${predicateValues.length + 2}`,
+      values: [...predicateValues, pagination.limit, pagination.offset],
+      ...(pagination.includeTotal ? {
+        countText: `SELECT COUNT(*)::bigint AS total FROM (${baseText}) AS bi_page_total`,
+        countValues: predicateValues,
+      } : {}),
+    }
+  }
+  const predicate = compileDatasetParameterPredicate(dataset, parameterValues)
+  const baseText = `SELECT * FROM (${String(dataset.sql || '').trim()}) AS bi_runtime${predicate.where}`
+  return {
+    ...predicate,
+    pagination,
+    text: `${baseText} LIMIT $${predicate.values.length + 1} OFFSET $${predicate.values.length + 2}`,
+    values: [...predicate.values, pagination.limit, pagination.offset],
+    ...(pagination.includeTotal ? {
+      countText: `SELECT COUNT(*)::bigint AS total FROM (${baseText}) AS bi_page_total`,
+      countValues: [...predicate.values],
+    } : {}),
+  }
+}
+
+export function compileDatasetOptionsQuery(dataset, parameterValues = {}, request = {}) {
+  if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('选项请求必须是对象')
+  const unknown = Object.keys(request).filter((key) => !['parameters', 'valueField', 'labelField', 'limit'].includes(key))
+  if (unknown.length) throw new Error(`选项请求包含未声明字段：${unknown.join('、')}`)
+  const fields = new Set((Array.isArray(dataset.fields) ? dataset.fields : []).map((field) => field.name))
+  const valueField = String(request.valueField || '')
+  const labelField = String(request.labelField || '')
+  if (!fields.has(valueField) || !fields.has(labelField)) throw new Error('选项字段必须存在于已保存的数据集字段中')
+  if (request.limit !== undefined && (!Number.isInteger(request.limit) || request.limit < 1 || request.limit > 500)) throw new Error('选项 limit 必须是 1 到 500 的整数')
+  const limit = request.limit ?? 200
+  const predicate = compileDatasetParameterPredicate(dataset, parameterValues)
+  const valueSql = quoteIdentifier(valueField)
+  const labelSql = quoteIdentifier(labelField)
+  const values = [...predicate.values, limit]
+  return {
+    ...predicate,
+    valueField,
+    labelField,
+    limit,
+    text: `SELECT DISTINCT ${valueSql} AS value, ${labelSql} AS label FROM (${String(dataset.sql || '').trim()}) AS bi_runtime${predicate.where} AND ${valueSql} IS NOT NULL`.replace(' WHERE AND ', ' WHERE ').replace(' AS bi_runtime AND ', ' AS bi_runtime WHERE ') + ` ORDER BY ${labelSql}, ${valueSql} LIMIT $${values.length}`,
+    values,
+  }
+}
+
 function aggregate(rows, field, aggregation) {
   const values = rows.map((row) => row[field]).filter((value) => value !== null && value !== undefined && value !== '')
   if (aggregation === 'count') return values.length
@@ -95,7 +154,7 @@ function aggregate(rows, field, aggregation) {
   return numbers.reduce((sum, value) => sum + value, 0)
 }
 
-export function applyDatasetRuntimeView(rows, view) {
+export function applyDatasetRuntimeView(rows, view, resultLimit = view.limit) {
   const groups = new Map()
   for (const row of rows) {
     const key = view.dimensions.map((item) => JSON.stringify(row[item.name])).join('\u001f') || '__all__'
@@ -116,5 +175,5 @@ export function applyDatasetRuntimeView(rows, view) {
     }
     return 0
   })
-  return result.slice(0, view.limit)
+  return result.slice(0, resultLimit)
 }

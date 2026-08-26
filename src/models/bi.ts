@@ -148,6 +148,16 @@ export interface QueryResult {
   rows: Array<Record<string, unknown>>
   rowCount: number
   durationMs?: number
+  pagination?: { offset: number; limit: number; includeTotal: boolean; total?: number }
+}
+
+export interface ParameterOptionsResultV3 {
+  options: Array<{ label: string; value: string | number | boolean }>
+  rowCount: number
+  durationMs?: number
+  source?: string
+  appliedParameters?: string[]
+  omittedParameters?: string[]
 }
 
 export interface SeriesData {
@@ -159,6 +169,18 @@ export interface SeriesData {
   unit?: string
   labelConfig: SeriesLabelConfig
   values: number[]
+  /** Raw series-dimension value used to reconstruct a clicked analytical row. */
+  seriesValue?: string
+}
+
+export interface ChartEventPayloadV3 {
+  dataIndex: number
+  seriesIndex: number
+  category: string
+  seriesValue?: string
+  measureField: string
+  measureName: string
+  value: number
 }
 
 export interface ComponentDataView {

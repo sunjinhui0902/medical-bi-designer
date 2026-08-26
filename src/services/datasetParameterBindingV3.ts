@@ -33,15 +33,19 @@ const TYPES: DatasetQueryParameterTypeV3[] = ['string', 'number', 'date', 'dateR
 const OPERATORS: DatasetParameterOperatorV3[] = ['eq', 'in', 'between']
 const EMPTY_POLICIES: DatasetParameterEmptyPolicyV3[] = ['omit', 'null', 'emptyString', 'reject']
 
+function cloneJsonValue<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 export function upgradeComponentDataConfigV3(
   config: ComponentDataConfig,
   parameterBindings: DatasetParameterBindingV3[] = config.version === 3 ? config.parameterBindings : [],
   refreshPolicy: ComponentRefreshPolicyV3 = config.version === 3 ? config.refreshPolicy : 'onParameterChange',
 ): ComponentDataConfigV3 {
   return {
-    ...structuredClone(config),
+    ...cloneJsonValue(config),
     version: 3,
-    parameterBindings: structuredClone(parameterBindings),
+    parameterBindings: cloneJsonValue(parameterBindings),
     refreshPolicy,
   }
 }
@@ -87,7 +91,7 @@ export function normalizeDatasetQueryParameterV3(
     required,
     sqlName: String(value.sqlName || code).trim(),
     operator,
-    ...(value.defaultValue === undefined ? {} : { defaultValue: structuredClone(value.defaultValue) }),
+    ...(value.defaultValue === undefined ? {} : { defaultValue: cloneJsonValue(value.defaultValue) }),
     emptyPolicy,
   }
 }

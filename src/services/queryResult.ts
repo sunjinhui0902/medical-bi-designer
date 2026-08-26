@@ -13,6 +13,7 @@ export function normalizeQueryResult(datasetId: string, value: unknown): QueryRe
   const source = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const rows = Array.isArray(source.rows) ? source.rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object' && !Array.isArray(row)) : []
   const suppliedFields = Array.isArray(source.fields) ? source.fields : []
+  const pagination = source.pagination && typeof source.pagination === 'object' ? source.pagination as Record<string, unknown> : undefined
   const fieldNames = suppliedFields.length
     ? suppliedFields.map((field) => typeof field === 'object' && field ? String((field as Record<string, unknown>).name ?? '') : '').filter(Boolean)
     : [...new Set(rows.flatMap((row) => Object.keys(row)))]
@@ -21,6 +22,9 @@ export function normalizeQueryResult(datasetId: string, value: unknown): QueryRe
     fields: fieldNames.map((name) => ({ name, label: name, dataType: inferType(rows.map((row) => row[name])) })),
     rows, rowCount: typeof source.rowCount === 'number' ? source.rowCount : rows.length,
     ...(typeof source.durationMs === 'number' ? { durationMs: source.durationMs } : {}),
+    ...(pagination && typeof pagination.offset === 'number' && typeof pagination.limit === 'number'
+      ? { pagination: { offset: pagination.offset, limit: pagination.limit, includeTotal: pagination.includeTotal === true, ...(typeof pagination.total === 'number' ? { total: pagination.total } : {}) } }
+      : {}),
   }
 }
 
@@ -90,6 +94,7 @@ function measureSeries(measure: MeasureBinding, seriesName?: string) {
     unit: measure.unit || '',
     labelConfig: measure.labelConfig ?? { show: false, showCategory: false, showSeries: false, mode: 'value', decimals: 0, position: 'top', unit: measure.unit || '', percentageBase: 'category' },
     values: [] as number[],
+    ...(seriesName === undefined ? {} : { seriesValue: seriesName }),
   }
 }
 

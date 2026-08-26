@@ -21,7 +21,7 @@ test('P10.6 internal page windows use same base, explicit page id, JSON values a
   const value = harness()
   const result = value.port.openPageWindow('page-detail', ['hospital'], { hospital: 'H 1' })
   assert.equal(result.ok, true); assert.equal(value.calls.length, 1); assert.equal(value.calls[0].target, '_blank'); assert.equal(value.calls[0].features, 'noopener,noreferrer')
-  const url = new URL(value.calls[0].url); assert.equal(url.origin, 'https://designer.example.test'); assert.equal(url.pathname, '/app'); assert.equal(url.searchParams.get('previewPageId'), 'page-detail'); assert.equal(url.searchParams.get('parameter.hospital'), '"H 1"'); assert.equal(url.hash, '')
+  const url = new URL(value.calls[0].url); assert.equal(url.origin, 'https://designer.example.test'); assert.equal(url.pathname, '/app'); assert.equal(url.searchParams.get('dashboardId'), 'dashboard-default'); assert.equal(url.searchParams.get('previewPageId'), 'page-detail'); assert.equal(url.searchParams.get('parameter.hospital'), '"H 1"'); assert.equal(url.hash, '')
 })
 
 test('P10.6 external links fail closed for dangerous protocols, parse errors and credentials', () => {

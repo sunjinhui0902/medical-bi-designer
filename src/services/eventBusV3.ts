@@ -20,7 +20,7 @@ type ParsedActionDetails = { ok: true; emitted?: unknown; evidence?: JsonValueV3
 const runtimeErrors = new WeakMap<object, { code: 'INVALID_INPUT' | 'STRUCTURE_BUDGET_EXCEEDED'; message: string }>()
 class RuntimeInputError extends Error { constructor(code: 'INVALID_INPUT' | 'STRUCTURE_BUDGET_EXCEEDED', message: string) { super(message); runtimeErrors.set(this, { code, message }) } }
 const EVENT_NAMES = new Set<EventNameV3>(['pageEnter', 'click', 'doubleClick', 'rowClick', 'valueChange'])
-const ownerKey = (owner: EventOwnerV3) => owner.kind === 'page' ? `page:${owner.pageId}` : `component:${owner.pageId}:${owner.componentId}`
+const ownerKey = (owner: EventOwnerV3) => owner.kind === 'page' ? `page:${owner.pageId}` : owner.kind === 'control' ? `control:${owner.pageId}:${owner.controlId}` : `component:${owner.pageId}:${owner.componentId}`
 const bindingKey = (owner: EventOwnerV3, id: string) => `${ownerKey(owner)}:${id}`
 
 export class EventBusV3 {
@@ -234,7 +234,7 @@ export class EventBusV3 {
     return deepFreezeSafeJsonCloneV3(raw) as ResolvedEventActionRequestV3
   }
 
-  private bindings(app: DashboardApplicationV3, owner: EventOwnerV3, name: EventNameV3) { const page = app.pages.find((item) => item.id === owner.pageId); const events = owner.kind === 'page' ? page?.pageEvents : page?.components.find((item) => item.id === owner.componentId)?.events; return (events ?? []).filter((item) => item.event === name) }
+  private bindings(app: DashboardApplicationV3, owner: EventOwnerV3, name: EventNameV3) { const page = app.pages.find((item) => item.id === owner.pageId); const events = owner.kind === 'page' ? page?.pageEvents : owner.kind === 'control' ? page?.controls.find((item) => item.id === owner.controlId)?.events : page?.components.find((item) => item.id === owner.componentId)?.events; return (events ?? []).filter((item) => item.event === name) }
   private validPayload(name: EventNameV3, payload: JsonObjectV3) { const keys = Object.keys(payload); if (name === 'pageEnter') return keys.length === 0; const key = name === 'rowClick' ? 'row' : name === 'valueChange' ? 'value' : 'datum'; if (keys.length !== 1 || keys[0] !== key) return false; const value = payload[key]; return name === 'valueChange' || Boolean(value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype) }
   private parseActionOutcome(raw: unknown, actionId: string): ParsedActionOutcome | EventRuntimeIssueV3 {
     try {

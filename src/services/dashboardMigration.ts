@@ -97,6 +97,12 @@ function normalizeComponent(value: unknown, index: number): DashboardComponent {
   const analysis = isRecord(value.analysisConfig) ? value.analysisConfig : {}
   const kpi = isRecord(value.kpiConfig) ? value.kpiConfig : {}
   const table = isRecord(value.tableConfig) ? value.tableConfig : {}
+  const tabs = isRecord(value.tabsConfig) ? value.tabsConfig : {}
+  const textConfig = isRecord(value.textConfig) ? value.textConfig : {}
+  const imageConfig = isRecord(value.imageConfig) ? value.imageConfig : {}
+  const iconConfig = isRecord(value.iconConfig) ? value.iconConfig : {}
+  const decorationConfig = isRecord(value.decorationConfig) ? value.decorationConfig : {}
+  const mapConfig = isRecord(value.mapConfig) ? value.mapConfig : {}
   const chartType = ['line', 'bar', 'pie', 'area', 'combo', 'scatter', 'bubble', 'outpatient', 'ranking'].includes(type)
   const kpiType = ['kpi', 'income', 'bed'].includes(type)
   const tableColumns = Array.isArray(table.columns)
@@ -114,6 +120,31 @@ function normalizeComponent(value: unknown, index: number): DashboardComponent {
         format: 'auto' as const,
         summary: 'none' as const,
       }))
+  const tableRules = Array.isArray(table.conditionalRules)
+    ? table.conditionalRules.filter(isRecord).map((rule, ruleIndex) => ({
+        id: text(rule.id, `table_rule_${ruleIndex + 1}`),
+        field: text(rule.field),
+        operator: ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'contains', 'in', 'between', 'isNull', 'notNull'].includes(text(rule.operator))
+          ? text(rule.operator) as 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'in' | 'between' | 'isNull' | 'notNull'
+          : 'eq' as const,
+        ...(rule.value === undefined ? {} : { value: rule.value }),
+        ...(typeof rule.backgroundColor === 'string' ? { backgroundColor: rule.backgroundColor } : {}),
+        ...(typeof rule.textColor === 'string' ? { textColor: rule.textColor } : {}),
+        ...(['normal', 'warning', 'danger'].includes(text(rule.badge)) ? { badge: text(rule.badge) as 'normal' | 'warning' | 'danger' } : {}),
+      })).filter((rule) => rule.field)
+    : []
+  const tabItems = Array.isArray(tabs.items)
+      ? tabs.items.filter(isRecord).map((item, itemIndex) => ({
+          id: text(item.id, `tab_${itemIndex + 1}`),
+          label: text(item.label, `页签 ${itemIndex + 1}`),
+          value: text(item.value, `tab_${itemIndex + 1}`),
+          componentIds: Array.isArray(item.componentIds) ? item.componentIds.filter((id): id is string => typeof id === 'string' && Boolean(id.trim())) : [],
+          visible: typeof item.visible === 'boolean' ? item.visible : true,
+          padding: Math.max(0, Math.min(48, finiteNumber(item.padding, 12))),
+          gap: Math.max(0, Math.min(48, finiteNumber(item.gap, 8))),
+          background: text(item.background, '#ffffff'),
+        }))
+    : []
   return {
     id: text(value.id, `component_${index + 1}`),
     type,
@@ -132,6 +163,11 @@ function normalizeComponent(value: unknown, index: number): DashboardComponent {
       titleSize: finiteNumber(style.titleSize, 10),
       titleWeight: finiteNumber(style.titleWeight, 650),
       titleVisible: typeof style.titleVisible === 'boolean' ? style.titleVisible : true,
+      borderColor: text(style.borderColor, '#e1e7ec'),
+      borderWidth: Math.max(0, Math.min(12, finiteNumber(style.borderWidth, 1))),
+      borderRadius: Math.max(0, Math.min(80, finiteNumber(style.borderRadius, 7))),
+      shadow: text(style.shadow),
+      opacity: Math.max(0, Math.min(1, finiteNumber(style.opacity, 1))),
     },
     ...(chartType ? {
       analysisConfig: {
@@ -183,8 +219,61 @@ function normalizeComponent(value: unknown, index: number): DashboardComponent {
         columns: tableColumns,
         striped: typeof table.striped === 'boolean' ? table.striped : true,
         showHeader: typeof table.showHeader === 'boolean' ? table.showHeader : true,
+        fixedHeader: typeof table.fixedHeader === 'boolean' ? table.fixedHeader : true,
+        pagination: {
+          enabled: isRecord(table.pagination) && typeof table.pagination.enabled === 'boolean' ? table.pagination.enabled : true,
+          mode: isRecord(table.pagination) && table.pagination.mode === 'server' ? 'server' : 'client',
+          pageSize: isRecord(table.pagination) ? Math.max(1, Math.min(200, Math.round(finiteNumber(table.pagination.pageSize, 20)))) : 20,
+          showTotal: isRecord(table.pagination) && typeof table.pagination.showTotal === 'boolean' ? table.pagination.showTotal : true,
+        },
+        conditionalRules: tableRules,
       },
     } : {}),
+    ...(type === 'tabs' ? {
+      tabsConfig: {
+        items: tabItems.length ? tabItems : [{ id: 'tab_1', label: '页签 1', value: 'tab_1', componentIds: [], visible: true, padding: 12, gap: 8, background: '#ffffff' }],
+        activeItemId: text(tabs.activeItemId, tabItems[0]?.id || 'tab_1'),
+        alignment: tabs.alignment === 'center' || tabs.alignment === 'stretch' ? tabs.alignment : 'left',
+        titlePosition: ['bottom', 'left', 'right'].includes(text(tabs.titlePosition)) ? text(tabs.titlePosition) as 'bottom' | 'left' | 'right' : 'top',
+        stylePreset: ['card', 'bookmark', 'menu'].includes(text(tabs.stylePreset)) ? text(tabs.stylePreset) as 'card' | 'bookmark' | 'menu' : 'default',
+        titleSize: Math.max(24, Math.min(96, finiteNumber(tabs.titleSize, 38))),
+      },
+    } : {}),
+    ...(type === 'text' ? { textConfig: {
+      content: text(textConfig.content, '请输入文本内容'), color: text(textConfig.color, '#243447'),
+      fontSize: Math.max(8, Math.min(120, finiteNumber(textConfig.fontSize, 16))),
+      fontWeight: Math.max(100, Math.min(900, finiteNumber(textConfig.fontWeight, 400))),
+      align: textConfig.align === 'center' || textConfig.align === 'right' ? textConfig.align : 'left',
+      verticalAlign: textConfig.verticalAlign === 'center' || textConfig.verticalAlign === 'bottom' ? textConfig.verticalAlign : 'top',
+      lineHeight: Math.max(1, Math.min(3, finiteNumber(textConfig.lineHeight, 1.5))),
+    } } : {}),
+    ...(type === 'image' ? { imageConfig: {
+      source: text(imageConfig.source), alt: text(imageConfig.alt, '本地图片'),
+      objectFit: imageConfig.objectFit === 'cover' || imageConfig.objectFit === 'fill' ? imageConfig.objectFit : 'contain',
+      opacity: Math.max(0, Math.min(1, finiteNumber(imageConfig.opacity, 1))),
+    } } : {}),
+    ...(type === 'icon' ? { iconConfig: {
+      name: ['hospital', 'warning', 'check', 'location', 'users'].includes(text(iconConfig.name)) ? text(iconConfig.name) as 'hospital' | 'warning' | 'check' | 'location' | 'users' : 'activity',
+      color: text(iconConfig.color, '#1477c9'), size: Math.max(12, Math.min(256, finiteNumber(iconConfig.size, 56))),
+      strokeWidth: Math.max(1, Math.min(4, finiteNumber(iconConfig.strokeWidth, 2))),
+    } } : {}),
+    ...(type === 'decoration' ? { decorationConfig: {
+      shape: decorationConfig.shape === 'line' || decorationConfig.shape === 'divider' ? decorationConfig.shape : 'rectangle',
+      fill: text(decorationConfig.fill, 'transparent'), borderColor: text(decorationConfig.borderColor, '#1477c9'),
+      borderWidth: Math.max(0, Math.min(20, finiteNumber(decorationConfig.borderWidth, 1))),
+      borderRadius: Math.max(0, Math.min(100, finiteNumber(decorationConfig.borderRadius, 0))),
+      direction: decorationConfig.direction === 'vertical' ? 'vertical' : 'horizontal',
+    } } : {}),
+    ...(type === 'map' ? { mapConfig: {
+      ...(isRecord(mapConfig.geoJson) ? { geoJson: mapConfig.geoJson as never } : {}),
+      regionCodeProperty: text(mapConfig.regionCodeProperty, 'code'), regionNameProperty: text(mapConfig.regionNameProperty, 'name'),
+      regionCodeField: text(mapConfig.regionCodeField, 'region_code'), valueField: text(mapConfig.valueField, 'value'),
+      longitudeField: text(mapConfig.longitudeField, 'longitude'), latitudeField: text(mapConfig.latitudeField, 'latitude'), pointLabelField: text(mapConfig.pointLabelField, 'institution_name'),
+      emptyColor: text(mapConfig.emptyColor, '#dbeafe'), lowColor: text(mapConfig.lowColor, '#60a5fa'), highColor: text(mapConfig.highColor, '#1d4ed8'),
+      borderColor: text(mapConfig.borderColor, '#ffffff'), pointColor: text(mapConfig.pointColor, '#f43f5e'),
+      showLegend: typeof mapConfig.showLegend === 'boolean' ? mapConfig.showLegend : true,
+      showPoints: typeof mapConfig.showPoints === 'boolean' ? mapConfig.showPoints : true,
+    } } : {}),
   }
 }
 

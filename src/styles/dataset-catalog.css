@@ -15,6 +15,7 @@
 .catalog-item { min-height: 90px; padding: 13px; display: grid; grid-template-columns: 38px 1fr auto; gap: 10px; align-items: start; text-align: left; color: #233541; background: #fff; border: 1px solid #d5dee3; border-left: 3px solid transparent; }
 .catalog-item:hover { border-color: #8ba9b9; border-left-color: #2073a8; }
 .catalog-item.selected { background: #edf7f4; border-color: #74ad9f; border-left-color: #19826d; }
+.catalog-item.pending { background: #edf5fc; border-color: #78acd0; border-left-color: #1477c9; box-shadow: 0 0 0 2px rgba(20,119,201,.1); }
 .catalog-item-icon { width: 36px; height: 36px; display: grid; place-items: center; color: #17699d; background: #e8f1f6; }
 .catalog-item-main b, .catalog-item-main small, .catalog-item-main em { display: block; }
 .catalog-item-main b { font-size: 12px; }
@@ -32,4 +33,5 @@
 .dataset-catalog-dialog footer div { display: flex; gap: 7px; }
 .dataset-catalog-dialog footer button { height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 5px; color: #405765; background: #fff; border: 1px solid #becbd2; font-size: 10px; }
 .dataset-catalog-dialog footer button:disabled { opacity: .4; }
+.dataset-catalog-dialog footer .catalog-confirm { color: #fff; background: #1477c9; border-color: #1477c9; }
 @media (max-width: 720px) { .catalog-filters { grid-template-columns: 1fr; } .catalog-content { grid-template-columns: 1fr; } .catalog-state { grid-column: 1; } }

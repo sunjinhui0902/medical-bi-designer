@@ -45,7 +45,7 @@ export function createSafeBrowserPortV3(options: { application: DashboardApplica
       const invalid = validateCarry(carryParameterIds); if (invalid) return invalid
       const page = options.application.pages.find((item) => item.id === pageId && item.type === 'standard')
       if (!page) return { ok: false as const, code: 'INVALID_INPUT', message: 'target standard page not found' }
-      const url = new URL(base.href); url.search = ''; url.hash = ''; url.searchParams.set('previewPageId', page.id)
+      const url = new URL(base.href); url.search = ''; url.hash = ''; url.searchParams.set('dashboardId', options.application.id); url.searchParams.set('previewPageId', page.id)
       try { carry(url, carryParameterIds, values) } catch (reason) { return { ok: false as const, code: 'INVALID_INPUT', message: reason instanceof Error ? reason.message : 'parameters could not be serialized' } }
       return checkedOpen(url)
     },

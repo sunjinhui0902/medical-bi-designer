@@ -73,12 +73,47 @@
                 "aggregation": "sum",
                 "unit": "万元",
                 "chartType": "line",
-                "axis": "left"
+                "axis": "left",
+                "labelConfig": {
+                  "show": false,
+                  "showCategory": false,
+                  "showSeries": false,
+                  "mode": "value",
+                  "decimals": 0,
+                  "position": "top",
+                  "unit": "万元",
+                  "percentageBase": "category"
+                }
               }
             ],
             "filters": [],
             "sort": [],
             "limit": 200
+          },
+          "analysisConfig": {
+            "xMin": null,
+            "xMax": null,
+            "yLeftMin": null,
+            "yLeftMax": null,
+            "yRightMin": null,
+            "yRightMax": null,
+            "showLabels": false,
+            "labelDecimals": 0,
+            "labelPosition": "top",
+            "labelMode": "value",
+            "labelShowCategory": false,
+            "labelShowSeries": false,
+            "labelUnit": "",
+            "percentageBase": "category",
+            "leftAxisTitle": "",
+            "leftAxisUnit": "",
+            "leftAxisColor": "#64748b",
+            "rightAxisTitle": "",
+            "rightAxisUnit": "",
+            "rightAxisColor": "#64748b",
+            "legendVisible": true,
+            "legendPosition": "bottom",
+            "warningLines": []
           },
           "styleConfig": {
             "background": "#ffffff",

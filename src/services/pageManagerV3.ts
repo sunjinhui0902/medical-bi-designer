@@ -143,7 +143,7 @@ export function copyPageV3(
   const nextId = createCheckedIdFactory(application, idFactory)
   const pageId = nextId('page', source.id)
   const componentIds = new Map(source.components.map((component) => [component.id, nextId('component', component.id)]))
-  const sourceEvents = [...source.pageEvents, ...source.components.flatMap((component) => component.events ?? [])]
+  const sourceEvents = [...source.pageEvents, ...source.controls.flatMap((control) => control.events ?? []), ...source.components.flatMap((component) => component.events ?? [])]
   const eventIds = new Map(sourceEvents.map((event) => [event.id, nextId('event', event.id)]))
   const actionIds = new Map(sourceEvents.flatMap((event) => event.actions).map((action) => [action.id, nextId('action', action.id)]))
   const page: DashboardPageV3 = {
@@ -153,12 +153,25 @@ export function copyPageV3(
     code,
     order: application.pages.length + 1,
     type: source.type,
-    controls: source.controls.map((control) => ({ ...clone(control), id: nextId('control', control.id) })),
-    components: source.components.map((component) => ({
-      ...clone(component),
-      id: componentIds.get(component.id)!,
-      ...(component.events ? { events: rewriteEvents(component.events, eventIds, actionIds, componentIds, source.id, pageId) } : {}),
+    controls: source.controls.map((control) => ({
+      ...clone(control),
+      id: nextId('control', control.id),
+      ...(control.events ? { events: rewriteEvents(control.events, eventIds, actionIds, componentIds, source.id, pageId) } : {}),
     })),
+    components: source.components.map((component) => {
+      const copied = clone(component)
+      if (copied.tabsConfig) {
+        copied.tabsConfig.items = copied.tabsConfig.items.map((item) => ({
+          ...item,
+          componentIds: (item.componentIds ?? []).map((id) => componentIds.get(id) ?? id),
+        }))
+      }
+      return {
+        ...copied,
+        id: componentIds.get(component.id)!,
+        ...(component.events ? { events: rewriteEvents(component.events, eventIds, actionIds, componentIds, source.id, pageId) } : {}),
+      }
+    }),
     pageEvents: rewriteEvents(source.pageEvents, eventIds, actionIds, componentIds, source.id, pageId),
   }
   return { application: { ...clone(application), pages: [...clone(application.pages), page] }, pageId }
@@ -169,7 +182,7 @@ export function deletePageV3(application: DashboardApplicationV3, pageId: string
   if (application.pages.length === 1) throw new Error('不能删除最后一个页面')
   if (application.defaultPageId === pageId) throw new Error('不能直接删除默认页面，请先设置新的默认页')
   const reference = application.pages
-    .flatMap((page) => [...page.pageEvents, ...page.components.flatMap((component) => component.events ?? [])])
+    .flatMap((page) => [...page.pageEvents, ...page.controls.flatMap((control) => control.events ?? []), ...page.components.flatMap((component) => component.events ?? [])])
     .flatMap((event) => event.actions)
     .find((action) => (action.type === 'navigatePage' || action.type === 'openPageWindow' || action.type === 'openDialog') && action.pageId === pageId)
   if (reference) throw new Error(`页面被动作引用，不能删除：${reference.id}`)

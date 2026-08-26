@@ -1,6 +1,6 @@
 # Phase10 验收记录
 
-> 分支：`agent/phase10-interactions`。本文件只记录工作区事实，不代表已提交、已推送或已合并。
+> 分支交付提交：`agent/phase10-interactions` / `c24865f`。Phase10 已通过 PR #13 和 GitHub CI，于 2026-08-13 squash 合并到 `main`，合并提交为 `e455928`。
 
 ## 状态矩阵
 
@@ -14,6 +14,18 @@
 | P10.5 | ACCEPTED | 高 | Dialog 栈、焦点环、ESC、遮罩、内部事件、拖动、八向缩放和保护区通过 |
 | P10.6 | ACCEPTED | 高 | Safe Browser 协议、Origin、快照、隐私、noopener/noreferrer 和目标页通过 |
 | P10.7 | ACCEPTED | 高 | Node 268/268；Chromium 19/19；生产构建 7006 modules；官方审计 0 |
+
+## 合并记录
+
+| 项目 | 结果 |
+| --- | --- |
+| 交付分支 | `agent/phase10-interactions` |
+| 交付提交 | `c24865f007f6c1004b44a019d9aded9cc13f1337` |
+| Pull Request | PR #13，`feat: deliver V3 Phase10 interactions` |
+| GitHub CI | `verify` 成功 |
+| 合并方式 | squash |
+| 远端 `main` | `e455928337bdc1f88a7bafc45728b047db4003b0` |
+| 合并时间 | 2026-08-13 13:33:32 +08:00 |
 
 ## P10.2 验收矩阵
 
@@ -44,7 +56,7 @@
 
 - P10.2 门禁中的唯一命令失败来自 Vite 写入 `node_modules/.vite-temp` 的沙箱权限限制，不属于项目失败；沙箱外生产构建已通过。
 - P10.3 构建同样仅在沙箱内遇到已知 Vite `.vite-temp` EPERM；沙箱外生产构建通过。
-- 未使用 PostgreSQL 凭据；未新增生产依赖；未提交、推送或合并；未进入 Phase11。
+- 未使用 PostgreSQL 凭据；未新增生产依赖；最终验收后仅在用户授权下提交、推送并经 CI 合并；未进入 Phase11。
 
 ## Phase10 最终验收矩阵
 
@@ -57,4 +69,4 @@
 | P10-F05 | Dialog 生命周期与几何 | 通过 | 焦点环/恢复、ESC、遮罩、内部 closeDialog、拖动、八向缩放、保护区零重叠 |
 | P10-F06 | 医院→科室→医生阶段出口 | 通过 | 真实 Chromium 验证跨页参数、面包屑、两级返回、清除联动和下钻回退 |
 | P10-F07 | 最终质量与供应链门禁 | 通过 | `npm test` 268/268；`npm run test:e2e` 19/19；`npm run build`；`npm audit` 0 |
-| P10-F08 | 范围和敏感信息边界 | 通过 | 无 Phase11、无生产依赖新增、无 PostgreSQL 凭据、无提交/推送/合并 |
+| P10-F08 | 范围和敏感信息边界 | 通过 | 无 Phase11、无生产依赖新增、无 PostgreSQL 凭据；提交与合并经用户授权及 GitHub CI |

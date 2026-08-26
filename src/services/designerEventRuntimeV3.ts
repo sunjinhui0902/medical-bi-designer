@@ -21,6 +21,8 @@ export interface DesignerEventRuntimeStatusV3 {
 export interface DesignerEventRuntimeV3 {
   triggerPageEnter(pageId: string): Promise<EventTransactionResultV3 | null>
   triggerComponentClick(pageId: string, componentId: string, datum?: JsonObjectV3): Promise<EventTransactionResultV3 | null>
+  triggerComponentDoubleClick(pageId: string, componentId: string, datum?: JsonObjectV3): Promise<EventTransactionResultV3 | null>
+  triggerControlValueChange(pageId: string, controlId: string, value: JsonValueV3): Promise<EventTransactionResultV3 | null>
   triggerComponentRowClick?(pageId: string, componentId: string, row: JsonObjectV3): Promise<EventTransactionResultV3 | null>
   interactionSnapshot(): PageSessionSnapshotV3
   clearInteractions(): PageSessionSnapshotV3
@@ -106,7 +108,7 @@ export function createDesignerEventRuntimeV3(options: {
   const hasBinding = (owner: EventOwnerV3, eventName: EventNameV3) => {
     const page = options.application.pages.find((item) => item.id === owner.pageId)
     if (!page) return false
-    const bindings = owner.kind === 'page' ? page.pageEvents : page.components.find((item) => item.id === owner.componentId)?.events
+    const bindings = owner.kind === 'page' ? page.pageEvents : owner.kind === 'control' ? page.controls.find((item) => item.id === owner.controlId)?.events : page.components.find((item) => item.id === owner.componentId)?.events
     return bindings?.some((item) => item.event === eventName) ?? false
   }
   const trigger = async (source: EventOwnerV3, eventName: EventNameV3, payload: JsonObjectV3) => {
@@ -129,6 +131,18 @@ export function createDesignerEventRuntimeV3(options: {
       const component = page?.components.find((item) => item.id === componentId)
       if (!page || !component) return Promise.resolve(null)
       return trigger({ kind: 'component', pageId, pageType: page.type, componentId, componentType: component.type }, 'click', { datum })
+    },
+    triggerComponentDoubleClick(pageId, componentId, datum = {}) {
+      const page = options.application.pages.find((item) => item.id === pageId)
+      const component = page?.components.find((item) => item.id === componentId)
+      if (!page || !component) return Promise.resolve(null)
+      return trigger({ kind: 'component', pageId, pageType: page.type, componentId, componentType: component.type }, 'doubleClick', { datum })
+    },
+    triggerControlValueChange(pageId, controlId, value) {
+      const page = options.application.pages.find((item) => item.id === pageId)
+      const control = page?.controls.find((item) => item.id === controlId)
+      if (!page || !control) return Promise.resolve(null)
+      return trigger({ kind: 'control', pageId, pageType: page.type, controlId, controlType: control.type }, 'valueChange', { value })
     },
     triggerComponentRowClick(pageId, componentId, row) {
       const page = options.application.pages.find((item) => item.id === pageId)

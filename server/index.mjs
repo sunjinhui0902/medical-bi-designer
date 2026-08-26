@@ -15,7 +15,7 @@ import {
   validateDatasetExecutionRequest,
   validateDatasetQueryParameters,
 } from './query-parameters.mjs'
-import { applyDatasetRuntimeView, compileDatasetRuntimeQuery } from './query-plan.mjs'
+import { applyDatasetRuntimeView, compileDatasetOptionsQuery, compileDatasetPagedQuery, compileDatasetRuntimeQuery } from './query-plan.mjs'
 
 const { Pool } = pg
 const execFileAsync = promisify(execFile)
@@ -92,7 +92,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/datasets') {
-      const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
+      const datasets = await readDatasets()
       const wantsCatalog = url.searchParams.has('paged') || url.searchParams.has('q') || url.searchParams.has('sourceId')
         || url.searchParams.has('status') || url.searchParams.has('category')
       if (!wantsCatalog) return json(response, 200, datasets)
@@ -119,7 +119,7 @@ createServer(async (request, response) => {
 
     const datasetDetailMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)$/)
     if (request.method === 'GET' && datasetDetailMatch) {
-      const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
+      const datasets = await readDatasets()
       const dataset = datasets.find((item) => item.id === decodeURIComponent(datasetDetailMatch[1]))
       if (!dataset) throw clientError(404, '数据集不存在')
       return json(response, 200, dataset)
@@ -203,10 +203,23 @@ createServer(async (request, response) => {
       let executionRequest
       try { executionRequest = validateDatasetExecutionRequest(body) }
       catch (error) { throw clientError(400, error.message) }
-      const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
+      const datasets = await readDatasets()
       const dataset = datasets.find((item) => item.id === decodeURIComponent(executeMatch[1]))
       if (!dataset) throw clientError(404, '数据集不存在')
-      return json(response, 200, await executeDatasetQuery(dataset, executionRequest.parameters, executionRequest.limit, executionRequest.view))
+      return json(response, 200, await executeDatasetQuery(dataset, executionRequest.parameters, executionRequest.limit, executionRequest.view, executionRequest.pagination))
+    }
+
+    const optionsMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)\/options$/)
+    if (request.method === 'POST' && optionsMatch) {
+      const body = await readBody(request)
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw clientError(400, '选项请求必须是对象')
+      const unknown = Object.keys(body).filter((key) => !['parameters', 'valueField', 'labelField', 'limit'].includes(key))
+      if (unknown.length) throw clientError(400, `选项请求包含未声明字段：${unknown.join('、')}`)
+      if (body.parameters !== undefined && (!body.parameters || typeof body.parameters !== 'object' || Array.isArray(body.parameters))) throw clientError(400, '选项查询参数必须是对象')
+      const datasets = await readDatasets()
+      const dataset = datasets.find((item) => item.id === decodeURIComponent(optionsMatch[1]))
+      if (!dataset) throw clientError(404, '数据集不存在')
+      return json(response, 200, await executeDatasetOptions(dataset, body))
     }
 
     return json(response, 404, { error: '接口不存在' })
@@ -227,6 +240,10 @@ async function initializeStorage() {
 
 async function readJson(file, fallback) {
   try { return JSON.parse(await readFile(file, 'utf8')) } catch { return fallback }
+}
+
+async function readDatasets() {
+  return (await readJson(datasetFile, [])).map(normalizeDataset)
 }
 
 async function writeJson(file, value) {
@@ -432,13 +449,15 @@ async function previewQuery(dataSourceId, sql, requestedLimit) {
   }
 }
 
-async function executeDatasetQuery(dataset, parameterValues, requestedLimit, view) {
+async function executeDatasetQuery(dataset, parameterValues, requestedLimit, view, pagination) {
   const safeSql = validateReadOnlySql(dataset.sql)
   let plan
   try {
     const safeDataset = { ...dataset, sql: safeSql }
     const values = parameterValues && typeof parameterValues === 'object' ? parameterValues : {}
-    plan = compileDatasetRuntimeQuery(safeDataset, values, view, requestedLimit)
+    plan = pagination
+      ? compileDatasetPagedQuery(safeDataset, values, view, pagination)
+      : compileDatasetRuntimeQuery(safeDataset, values, view, requestedLimit)
       ?? compileDatasetParameterizedQuery(safeDataset, values, Math.min(Number(requestedLimit) || maxRows, maxRows))
   } catch (error) {
     throw clientError(400, `查询参数无效：${error.message}`)
@@ -447,15 +466,17 @@ async function executeDatasetQuery(dataset, parameterValues, requestedLimit, vie
   const started = Date.now()
 
   if (source.mode === 'demo') {
-    const limit = plan.values.at(-1)
     const filtered = applyDatasetParametersToRows(demoRowsFor(safeSql), plan)
-    const rows = plan.view ? applyDatasetRuntimeView(filtered, plan.view) : filtered.slice(0, limit)
+    const allRows = plan.view ? applyDatasetRuntimeView(filtered, plan.view, Number.POSITIVE_INFINITY) : filtered
+    const limit = plan.pagination?.limit ?? plan.values.at(-1)
+    const rows = plan.pagination ? allRows.slice(plan.pagination.offset, plan.pagination.offset + limit) : allRows.slice(0, limit)
     return {
       rows,
       fields: inferFields(rows),
       rowCount: rows.length,
       durationMs: Date.now() - started,
       limited: rows.length === limit,
+      ...(plan.pagination ? { pagination: { ...plan.pagination, ...(plan.pagination.includeTotal ? { total: allRows.length } : {}) } } : {}),
       source: source.id,
       appliedParameters: plan.appliedParameters,
       omittedParameters: plan.omittedParameters,
@@ -468,13 +489,15 @@ async function executeDatasetQuery(dataset, parameterValues, requestedLimit, vie
     await client.query('BEGIN READ ONLY')
     await client.query(`SELECT set_config('statement_timeout', '${timeoutMs}', true)`)
     const result = await client.query(plan.text, plan.values)
+    const countResult = plan.countText ? await client.query(plan.countText, plan.countValues) : null
     await client.query('COMMIT')
     return {
       rows: result.rows,
       fields: result.fields.map((field) => ({ name: field.name, type: postgresType(field.dataTypeID) })),
       rowCount: result.rowCount,
       durationMs: Date.now() - started,
-      limited: result.rowCount === plan.values.at(-1),
+      limited: result.rowCount === (plan.pagination?.limit ?? plan.values.at(-1)),
+      ...(plan.pagination ? { pagination: { ...plan.pagination, ...(countResult ? { total: Number(countResult.rows[0]?.total || 0) } : {}) } } : {}),
       source: source.id,
       appliedParameters: plan.appliedParameters,
       omittedParameters: plan.omittedParameters,
@@ -482,6 +505,41 @@ async function executeDatasetQuery(dataset, parameterValues, requestedLimit, vie
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     throw clientError(400, `SQL 执行失败：${error.message}`)
+  } finally {
+    client.release()
+    await pool.end()
+  }
+}
+
+async function executeDatasetOptions(dataset, request) {
+  const safeSql = validateReadOnlySql(dataset.sql)
+  let plan
+  try { plan = compileDatasetOptionsQuery({ ...dataset, sql: safeSql }, request.parameters ?? {}, request) }
+  catch (error) { throw clientError(400, `选项查询无效：${error.message}`) }
+  const source = await resolveSource(dataset.dataSourceId, {})
+  const started = Date.now()
+  if (source.mode === 'demo') {
+    const filtered = applyDatasetParametersToRows(demoRowsFor(safeSql), plan)
+    const unique = new Map()
+    for (const row of filtered) {
+      const value = row[plan.valueField]
+      if (value === null || value === undefined || unique.has(JSON.stringify(value))) continue
+      unique.set(JSON.stringify(value), { value, label: String(row[plan.labelField] ?? value) })
+    }
+    const options = [...unique.values()].sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true })).slice(0, plan.limit)
+    return { options, rowCount: options.length, durationMs: Date.now() - started, source: source.id, appliedParameters: plan.appliedParameters, omittedParameters: plan.omittedParameters }
+  }
+  const pool = createPool(source)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN READ ONLY')
+    await client.query(`SELECT set_config('statement_timeout', '${timeoutMs}', true)`)
+    const result = await client.query(plan.text, plan.values)
+    await client.query('COMMIT')
+    return { options: result.rows.map((row) => ({ value: row.value, label: String(row.label ?? row.value) })), rowCount: result.rowCount, durationMs: Date.now() - started, source: source.id, appliedParameters: plan.appliedParameters, omittedParameters: plan.omittedParameters }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw clientError(400, `选项 SQL 执行失败：${error.message}`)
   } finally {
     client.release()
     await pool.end()

@@ -33,12 +33,17 @@ function fixture() {
       dataConfig: { dimensions: [{ field: 'department', role: 'category' }], measures: [{ field: 'amount', aggregation: 'sum', axis: 'left' }] },
       tableConfig: { columns: [{ field: 'department' }, { field: 'amount' }, { field: 'constructor' }] },
     } as never,
+    {
+      id: 'component-tabs', type: 'tabs', title: 'Tabs', dataConfig: { dimensions: [], measures: [] },
+      tabsConfig: { items: [{ id: 'overview', label: '概览', value: 'overview', componentIds: [], visible: true, padding: 12, gap: 8, background: '#fff' }], activeItemId: 'overview', alignment: 'left', titlePosition: 'top', stylePreset: 'default', titleSize: 38 },
+    } as never,
   ]
   return createPageV3(base, { name: 'Detail', code: 'detail' }, () => 'page-detail').application
 }
 const pageOwner = (): EventOwnerV3 => ({ kind: 'page', pageId: 'page-home', pageType: 'standard' })
 const chartOwner = (): EventOwnerV3 => ({ kind: 'component', pageId: 'page-home', pageType: 'standard', componentId: 'component-chart', componentType: 'bar' })
 const tableOwner = (): EventOwnerV3 => ({ kind: 'component', pageId: 'page-home', pageType: 'standard', componentId: 'component-table', componentType: 'table' })
+const tabsOwner = (): EventOwnerV3 => ({ kind: 'component', pageId: 'page-home', pageType: 'standard', componentId: 'component-tabs', componentType: 'tabs' })
 
 function refresh(id = 'action-refresh', componentIds?: string[]) {
   return componentIds
@@ -70,6 +75,9 @@ test('P9.3 frozen eventField contract has no pageEnter field and uses escaped re
   ])
   assert.deepEqual(eventFieldCapabilitiesForOwnerV3(source, tableOwner(), 'rowClick').map((item) => item.path), [
     '/row/department', '/row/amount',
+  ])
+  assert.deepEqual(eventFieldCapabilitiesForOwnerV3(source, tabsOwner(), 'click').map((item) => item.path), [
+    '/datum/tab_id', '/datum/tab_label', '/datum/tab_value',
   ])
   assert.throws(() => createEventBindingV3(source, pageOwner(), pageEvent({ conditions: [
     { left: { kind: 'eventField', path: '/page/id' }, operator: 'isEmpty' },

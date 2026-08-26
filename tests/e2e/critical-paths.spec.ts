@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const phase8Example = fileURLToPath(new URL('../../docs/02_V3架构/示例/dashboard-v3-phase8.json', import.meta.url))
@@ -20,6 +21,226 @@ test('设计器可以新增组件并保留核心工作区', async ({ page }) => 
 
   await expect(components).toHaveCount(originalCount + 1)
   await expect(page.getByText('组件配置', { exact: true })).toBeVisible()
+})
+
+test('可新建独立看板并配置组合图与容器页签', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.getByRole('button', { name: '新建看板' }).click()
+  const dashboardManager = page.getByRole('dialog', { name: '看板管理' })
+  await dashboardManager.getByLabel('新看板名称').fill('E2E 交互看板')
+  await dashboardManager.getByRole('button', { name: '新建看板' }).click()
+  await expect(page.getByRole('button', { name: '打开看板管理' })).toHaveText(/E2E 交互看板/)
+  await expect(page.locator('.design-component')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '新建页面' }).click()
+  await expect(page.getByRole('tab', { name: /页面 2/ })).toHaveAttribute('aria-selected', 'true')
+
+  await page.getByRole('button', { name: '组合图', exact: true }).click()
+  const combo = page.locator('.design-component').filter({ hasText: '组合图' })
+  await combo.click()
+  await page.getByRole('tab', { name: '字段', exact: true }).click()
+  await page.getByPlaceholder('系列名称').fill('收入系列')
+  await page.getByTitle('按聚合结果排序').selectOption('desc')
+  await page.getByRole('tab', { name: '样式', exact: true }).click()
+  await expect(page.locator('.combo-style-config')).toBeVisible()
+  await expect(page.getByLabel('左轴标题')).toBeVisible()
+
+  await page.getByRole('button', { name: '页签', exact: true }).click()
+  await page.getByRole('tab', { name: '样式', exact: true }).click()
+  await expect(page.getByLabel('标题面板位置')).toBeVisible()
+  const tabContent = page.locator('.dashboard-tab-content')
+  const comboGrip = combo.getByRole('button', { name: '移动组件' })
+  const comboBox = await comboGrip.boundingBox()
+  const firstContentBox = await tabContent.boundingBox()
+  expect(comboBox).not.toBeNull()
+  expect(firstContentBox).not.toBeNull()
+  await comboGrip.dispatchEvent('pointerdown', {
+    pointerId: 1,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: comboBox!.x + comboBox!.width / 2,
+    clientY: comboBox!.y + comboBox!.height / 2,
+  })
+  await page.mouse.move(firstContentBox!.x + firstContentBox!.width / 2, firstContentBox!.y + firstContentBox!.height / 2, { steps: 12 })
+  await expect(tabContent).toHaveClass(/is-drop-target/)
+  await page.evaluate(({ clientX, clientY }) => {
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 0, clientX, clientY }))
+  }, { clientX: firstContentBox!.x + firstContentBox!.width / 2, clientY: firstContentBox!.y + firstContentBox!.height / 2 })
+  await expect(page.getByText('已移入“概览”', { exact: true })).toBeVisible()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '组合图' })).toBeVisible()
+
+  await page.getByLabel('页签标题面板').getByRole('button', { name: '趋势分析' }).click()
+  await page.getByRole('button', { name: '文本', exact: true }).dragTo(tabContent)
+  await expect(page.getByText(/已将文本拖入“趋势分析”/)).toBeVisible()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '医院运营分析说明' })).toBeVisible()
+
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  const persisted = await page.evaluate(() => {
+    const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+    const application = JSON.parse(localStorage.getItem(`medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`) || '{}')
+    const comboComponent = application.pages.flatMap((item: { components: Array<{ type: string }> }) => item.components).find((item: { type: string }) => item.type === 'combo')
+    return { alias: comboComponent?.dataConfig.measures[0]?.alias, sort: comboComponent?.dataConfig.sort }
+  })
+  expect(persisted.alias).toBe('收入系列')
+  expect(persisted.sort).toEqual([{ field: 'amount', direction: 'desc' }])
+
+  await page.getByRole('button', { name: '预览', exact: true }).click()
+  await page.getByLabel('页签标题面板').getByRole('button', { name: '概览' }).click()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '组合图' })).toBeVisible()
+  await page.getByLabel('页签标题面板').getByRole('button', { name: '趋势分析' }).click()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '医院运营分析说明' })).toBeVisible()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '组合图' })).toHaveCount(0)
+  await page.getByRole('button', { name: '退出预览', exact: true }).click()
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: '打开看板管理' })).toHaveText(/E2E 交互看板/)
+  await page.getByRole('tab', { name: /页面 2/ }).click()
+  await expect(page.locator('.dashboard-tab-layout')).toBeVisible()
+  await expect(page.locator('.tab-child-component').filter({ hasText: '组合图' })).toBeVisible()
+})
+
+test('页签内组件可悬停跨 Tab 移动并拖回画布', async ({ page }) => {
+  await page.getByRole('button', { name: '页签', exact: true }).click()
+  const tabContent = page.locator('.dashboard-tab-content')
+  await page.getByRole('button', { name: '文本', exact: true }).dragTo(tabContent)
+  const child = page.locator('.tab-child-component').filter({ hasText: '医院运营分析说明' })
+  await expect(child).toBeVisible()
+
+  const childGrip = child.getByRole('button', { name: '移动页签内组件' })
+  const childGripBox = await childGrip.boundingBox()
+  const trendHeader = page.getByLabel('页签标题面板').getByRole('button', { name: '趋势分析' })
+  const trendHeaderBox = await trendHeader.boundingBox()
+  expect(childGripBox).not.toBeNull()
+  expect(trendHeaderBox).not.toBeNull()
+  await childGrip.dispatchEvent('pointerdown', {
+    pointerId: 2,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: childGripBox!.x + childGripBox!.width / 2,
+    clientY: childGripBox!.y + childGripBox!.height / 2,
+  })
+  await page.mouse.move(trendHeaderBox!.x + trendHeaderBox!.width / 2, trendHeaderBox!.y + trendHeaderBox!.height / 2)
+  await page.waitForTimeout(520)
+  await expect(trendHeader).toHaveClass(/active/)
+  const trendContentBox = await tabContent.boundingBox()
+  expect(trendContentBox).not.toBeNull()
+  await page.mouse.move(trendContentBox!.x + trendContentBox!.width / 2, trendContentBox!.y + trendContentBox!.height / 2, { steps: 8 })
+  await expect(tabContent).toHaveClass(/is-drop-target/)
+  await page.evaluate(({ clientX, clientY }) => {
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, pointerType: 'mouse', button: 0, clientX, clientY }))
+  }, { clientX: trendContentBox!.x + trendContentBox!.width / 2, clientY: trendContentBox!.y + trendContentBox!.height / 2 })
+  await expect(page.getByText('已移入“趋势分析”', { exact: true })).toBeVisible()
+  await expect(child).toBeVisible()
+  await page.getByLabel('页签标题面板').getByRole('button', { name: '概览' }).click()
+  await expect(child).toHaveCount(0)
+  await trendHeader.click()
+  await expect(child).toBeVisible()
+
+  const movedGrip = child.getByRole('button', { name: '移动页签内组件' })
+  const movedGripBox = await movedGrip.boundingBox()
+  const canvasBox = await page.locator('.interactive-canvas').boundingBox()
+  expect(movedGripBox).not.toBeNull()
+  expect(canvasBox).not.toBeNull()
+  const rootTarget = { x: canvasBox!.x + canvasBox!.width - 170, y: canvasBox!.y + canvasBox!.height - 120 }
+  await movedGrip.dispatchEvent('pointerdown', {
+    pointerId: 3,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: movedGripBox!.x + movedGripBox!.width / 2,
+    clientY: movedGripBox!.y + movedGripBox!.height / 2,
+  })
+  await page.mouse.move(rootTarget.x, rootTarget.y, { steps: 10 })
+  await page.evaluate(({ clientX, clientY }) => {
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 3, pointerType: 'mouse', button: 0, clientX, clientY }))
+  }, { clientX: rootTarget.x, clientY: rootTarget.y })
+  await expect(page.getByText('已移出页签块', { exact: true })).toBeVisible()
+  await expect(page.locator('.design-component').filter({ hasText: '医院运营分析说明' })).toBeVisible()
+})
+
+test('拖拽取消与设计页切换均完整恢复组件位置和层级', async ({ page }) => {
+  const originalPage = page.getByRole('tab').first()
+  await page.getByRole('button', { name: '新建页面' }).click()
+  const secondPage = page.getByRole('tab', { name: /页面 2/ })
+  await expect(secondPage).toHaveAttribute('aria-selected', 'true')
+  await originalPage.click()
+
+  const component = page.locator('.design-component').first()
+  const grip = component.getByRole('button', { name: '移动组件' })
+  const originalStyle = await component.getAttribute('style')
+  const gripBox = await grip.boundingBox()
+  expect(gripBox).not.toBeNull()
+
+  await grip.dispatchEvent('pointerdown', {
+    pointerId: 31,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: gripBox!.x + gripBox!.width / 2,
+    clientY: gripBox!.y + gripBox!.height / 2,
+  })
+  await page.mouse.move(gripBox!.x + 90, gripBox!.y + 70, { steps: 6 })
+  await page.keyboard.press('Escape')
+  await expect(component).toHaveAttribute('style', originalStyle!)
+
+  await grip.dispatchEvent('pointerdown', {
+    pointerId: 32,
+    pointerType: 'mouse',
+    button: 0,
+    clientX: gripBox!.x + gripBox!.width / 2,
+    clientY: gripBox!.y + gripBox!.height / 2,
+  })
+  await page.mouse.move(gripBox!.x + 110, gripBox!.y + 85, { steps: 6 })
+  await secondPage.evaluate((button: HTMLElement) => button.click())
+  await expect(secondPage).toHaveAttribute('aria-selected', 'true')
+  await originalPage.evaluate((button: HTMLElement) => button.click())
+  await expect(component).toHaveAttribute('style', originalStyle!)
+})
+
+test('Tab 四种标题方向的真实内容区均约束子组件边界', async ({ page }) => {
+  await page.getByRole('button', { name: '页签', exact: true }).click()
+  const tabContent = page.locator('.dashboard-tab-content')
+  await page.getByRole('button', { name: '文本', exact: true }).dragTo(tabContent)
+  const child = page.locator('.tab-child-component').filter({ hasText: '医院运营分析说明' })
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+
+  for (const [index, position] of ['top', 'bottom', 'left', 'right'].entries()) {
+    await page.evaluate((nextPosition) => {
+      const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+      const key = `medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`
+      const application = JSON.parse(localStorage.getItem(key) || '{}')
+      const tabs = application.pages.flatMap((pageItem: { components: Array<{ type: string }> }) => pageItem.components)
+        .find((component: { type: string }) => component.type === 'tabs')
+      tabs.tabsConfig.titlePosition = nextPosition
+      localStorage.setItem(key, JSON.stringify(application))
+      localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(application))
+    }, position)
+    await page.reload()
+    await expect(child).toBeVisible()
+    const contentBox = await tabContent.boundingBox()
+    const grip = child.getByRole('button', { name: '移动页签内组件' })
+    const gripBox = await grip.boundingBox()
+    expect(contentBox).not.toBeNull()
+    expect(gripBox).not.toBeNull()
+    const target = { x: contentBox!.x + contentBox!.width - 2, y: contentBox!.y + contentBox!.height - 2 }
+    await grip.dispatchEvent('pointerdown', {
+      pointerId: 40 + index,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: gripBox!.x + gripBox!.width / 2,
+      clientY: gripBox!.y + gripBox!.height / 2,
+    })
+    await page.mouse.move(target.x, target.y, { steps: 5 })
+    await page.evaluate(({ pointerId, clientX, clientY }) => {
+      window.dispatchEvent(new PointerEvent('pointerup', { pointerId, pointerType: 'mouse', button: 0, clientX, clientY }))
+    }, { pointerId: 40 + index, clientX: target.x, clientY: target.y })
+    const movedBox = await child.boundingBox()
+    const settledContentBox = await tabContent.boundingBox()
+    expect(movedBox).not.toBeNull()
+    expect(settledContentBox).not.toBeNull()
+    expect(movedBox!.x).toBeGreaterThanOrEqual(settledContentBox!.x + 10)
+    expect(movedBox!.y).toBeGreaterThanOrEqual(settledContentBox!.y + 10)
+    expect(movedBox!.x + movedBox!.width).toBeLessThanOrEqual(settledContentBox!.x + settledContentBox!.width - 10)
+    expect(movedBox!.y + movedBox!.height).toBeLessThanOrEqual(settledContentBox!.y + settledContentBox!.height - 10)
+  }
 })
 
 test('数据管理主页面均可从设计器进入', async ({ page }) => {
@@ -44,6 +265,11 @@ test('参数中心可以保存合成参数定义', async ({ page }) => {
 
   await expect(page.getByText('参数已创建', { exact: true })).toBeVisible()
   await expect(page.getByText('e2e_test_year', { exact: true }).first()).toBeVisible()
+  await expect.poll(() => page.evaluate(() => {
+    const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+    const application = JSON.parse(localStorage.getItem(`medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`) || '{}')
+    return application.parameters?.some((parameter: { code: string }) => parameter.code === 'e2e_test_year')
+  })).toBe(true)
 })
 
 test('本地 API 健康检查可用', async ({ request }) => {
@@ -66,6 +292,65 @@ test('Phase8 控件导入、参数刷新、保存和重载保持运行时边界'
   await page.reload()
   await expect(page.getByLabel('运行时筛选条件')).toBeVisible()
   await expect(page.locator('.runtime-button-group button').filter({ hasText: '2026' })).toHaveClass(/active/)
+})
+
+test('真实图表快速切换指标排序发送最新方向并取消旧请求', async ({ page }) => {
+  const directions: string[] = []
+  const payloads: string[] = []
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.route('**/api/datasets', async (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify([{
+      id: 'dataset-income-example', name: '收入排序测试', status: 'validated', dataSourceId: 'test-source', parameters: [],
+      fields: [{ name: 'month_code', label: '月份', type: 'string', role: 'dimension' }, { name: 'amount', label: '收入', type: 'number', role: 'measure' }],
+    }]),
+  }))
+  await page.route('**/api/datasets/*/execute', async (route) => {
+    const body = route.request().postDataJSON() as { view?: { sort?: Array<{ direction?: string }> } }
+    payloads.push(JSON.stringify(body))
+    const direction = body.view?.sort?.[0]?.direction
+    if (direction) directions.push(direction)
+    if (direction === 'desc') await new Promise((resolve) => setTimeout(resolve, 250))
+    try {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ fields: [{ name: 'month_code', dataType: 'string' }, { name: 'amount', dataType: 'number' }], rows: [{ month_code: direction || 'none', amount: direction === 'asc' ? 222 : 111 }], rowCount: 1 }),
+      })
+    } catch {}
+  })
+  await page.reload()
+  const fixture = JSON.parse(readFileSync(phase8Example, 'utf8'))
+  const component = fixture.pages[0].components[0]
+  component.type = 'table'
+  component.tableConfig = {
+    columns: [
+      { field: 'month_code', label: '排序方向', width: 120, format: 'auto', summary: 'none' },
+      { field: 'amount', label: '最终值', width: 120, format: 'number', summary: 'none' },
+    ],
+    striped: true,
+    showHeader: true,
+  }
+  await page.locator('input[type="file"]').setInputFiles({ name: 'phase8-sort-latest.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(fixture)) })
+  await page.locator('[data-component-id="component-income"]').click()
+  await page.getByRole('tab', { name: '字段', exact: true }).click()
+  const sort = page.getByTitle('按聚合结果排序')
+  await sort.selectOption('desc')
+  await page.waitForTimeout(100)
+  expect(pageErrors).toEqual([])
+  await expect.poll(() => payloads).toContainEqual(expect.stringContaining('"direction":"desc"'))
+  await sort.click()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Tab')
+  await expect.poll(() => directions.at(-1)).toBe('asc')
+  await expect(sort).toHaveValue('asc')
+  await expect(page.getByText('排序已应用，真实数据已刷新', { exact: true })).toBeVisible()
+  await page.waitForTimeout(300)
+  await expect(page.locator('[data-component-id="component-income"] tbody')).toContainText('asc')
+  await expect(page.locator('[data-component-id="component-income"] tbody')).toContainText('222')
+  await expect(page.locator('[data-component-id="component-income"] tbody')).not.toContainText('111')
 })
 
 test('P9.7 Phase9 示例仅在预览执行真实事件查询并保持刷新作用域', async ({ page }) => {
@@ -184,12 +469,8 @@ test('P9.7 切页、退出和重导入均拒绝挂起旧响应覆盖当前 UI', 
 test('P9.2 页面切换保存当前草稿且活动页不进入持久化 JSON', async ({ page }) => {
   const homeComponents = await page.locator('.design-component').count()
   await page.getByRole('button', { name: '新建页面' }).click()
-  const editor = page.getByRole('form', { name: '新建页面' })
-  await editor.getByLabel('页面名称').fill('质量分析')
-  await editor.getByLabel('页面编码').fill('quality_analysis')
-  await editor.getByRole('button', { name: '创建页面' }).click()
 
-  await expect(page.getByRole('tab', { name: /质量分析/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /页面 2/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.design-component')).toHaveCount(0)
   await page.getByRole('button', { name: '折线图', exact: true }).click()
   await expect(page.locator('.design-component')).toHaveCount(1)
@@ -197,14 +478,14 @@ test('P9.2 页面切换保存当前草稿且活动页不进入持久化 JSON', a
   await page.getByRole('tab', { name: /首页/ }).click()
   await expect(page.locator('.design-component')).toHaveCount(homeComponents)
   await expect(page.locator('.design-component.is-selected')).toHaveCount(0)
-  await page.getByRole('tab', { name: /质量分析/ }).click()
+  await page.getByRole('tab', { name: /页面 2/ }).click()
   await expect(page.locator('.design-component')).toHaveCount(1)
 
   await page.getByRole('button', { name: '保存', exact: true }).click()
   const persisted = await page.evaluate(() => localStorage.getItem('medical-bi-designer-dashboard-v3') || '')
   expect(persisted).not.toContain('activePageId')
   await page.reload()
-  await page.getByRole('tab', { name: /质量分析/ }).click()
+  await page.getByRole('tab', { name: /页面 2/ }).click()
   await expect(page.locator('.design-component')).toHaveCount(1)
 })
 
@@ -214,36 +495,25 @@ test('P9.2 页面管理组合操作保持确认、排序和默认页边界', asy
   await expect(page.getByRole('button', { name: '不能删除最后一个页面' })).toBeDisabled()
 
   await page.getByRole('button', { name: '新建页面' }).click()
-  let editor = page.getByRole('form', { name: '新建页面' })
-  await editor.getByLabel('页面名称').fill('页面 Alpha')
-  await editor.getByLabel('页面编码').fill('alpha')
-  await editor.getByRole('button', { name: '创建页面' }).click()
   await expect(tabs).toHaveCount(2)
-
-  await page.getByRole('button', { name: '新建页面' }).click()
-  editor = page.getByRole('form', { name: '新建页面' })
-  await editor.getByLabel('页面名称').fill('重复 Alpha')
-  await editor.getByLabel('页面编码').fill('alpha')
-  await editor.getByRole('button', { name: '创建页面' }).click()
-  await expect(editor.getByRole('alert')).toContainText('页面编码已存在')
-  await expect(editor.getByLabel('页面名称')).toHaveValue('重复 Alpha')
-  await expect(editor.getByLabel('页面编码')).toHaveValue('alpha')
-  await editor.getByRole('button', { name: '取消页面编辑' }).click()
+  await expect(page.getByRole('tab', { name: /页面 2/ })).toHaveAttribute('aria-selected', 'true')
 
   await page.getByRole('button', { name: '删除当前页面' }).click()
   await expect(page.getByRole('button', { name: '确认删除当前页面' })).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
   await page.getByRole('tab', { name: /首页/ }).click()
-  await page.getByRole('tab', { name: /页面 Alpha/ }).click()
+  await page.getByRole('tab', { name: /页面 2/ }).click()
   await page.getByRole('button', { name: '删除当前页面' }).click()
   await expect(tabs).toHaveCount(2)
   await expect(page.getByRole('button', { name: '确认删除当前页面' })).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
 
   await page.getByRole('tab', { name: /首页/ }).click()
-  await page.getByRole('tab', { name: /页面 Alpha/ }).click()
+  await page.getByRole('tab', { name: /页面 2/ }).click()
   await page.getByRole('button', { name: '复制当前页面' }).click()
   await page.getByRole('form', { name: '复制页面' }).getByRole('button', { name: '创建副本' }).click()
   await expect(tabs).toHaveCount(3)
-  const copiedTab = page.getByRole('tab', { name: /页面 Alpha 副本/ })
+  const copiedTab = page.getByRole('tab', { name: /页面 2 副本/ })
   await expect(copiedTab).toHaveAttribute('aria-selected', 'true')
 
   await expect(page.getByRole('button', { name: '下移当前页面' })).toBeDisabled()
@@ -256,14 +526,14 @@ test('P9.2 页面管理组合操作保持确认、排序和默认页边界', asy
   await expect(copiedTab).toContainText('默认')
   await page.getByRole('button', { name: '保存', exact: true }).click()
   await page.reload()
-  await expect(page.getByRole('tab', { name: /页面 Alpha 副本.*默认/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /页面 2 副本.*默认/ })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('button', { name: '请先设置其他默认页，再删除当前页' })).toBeDisabled()
 
-  const alphaTab = tabs.filter({ hasText: '页面 Alpha', hasNotText: '副本' })
+  const alphaTab = tabs.filter({ hasText: '页面 2', hasNotText: '副本' })
   await alphaTab.click()
   await page.getByRole('button', { name: '删除当前页面' }).click()
   await page.getByRole('button', { name: '确认删除当前页面' }).click()
-  await expect(page.getByRole('tab', { name: /页面 Alpha 副本.*默认/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /页面 2 副本.*默认/ })).toHaveAttribute('aria-selected', 'true')
   await expect(alphaTab).toHaveCount(0)
 
   await page.getByRole('tab', { name: /首页/ }).click()
@@ -274,10 +544,12 @@ test('P9.2 页面管理组合操作保持确认、排序和默认页边界', asy
 
   await page.getByRole('button', { name: '保存', exact: true }).click()
   await page.evaluate(() => {
-    const key = 'medical-bi-designer-dashboard-v3'
+    const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+    const key = `medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`
     const application = JSON.parse(localStorage.getItem(key) || '{}')
     application.pages[0].type = 'dialog'
     localStorage.setItem(key, JSON.stringify(application))
+    localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(application))
   })
   await page.reload()
   await expect(page.getByRole('tab', { name: /兼容页/ })).toBeVisible()
@@ -292,19 +564,17 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   })
 
   await page.getByRole('button', { name: '新建页面' }).click()
-  const pageEditor = page.getByRole('form', { name: '新建页面' })
-  await pageEditor.getByLabel('页面名称').fill('事件测试页')
-  await pageEditor.getByLabel('页面编码').fill('event_test')
-  await pageEditor.getByRole('button', { name: '创建页面' }).click()
-  const detailTab = page.getByRole('tab', { name: /事件测试页/ })
+  const detailTab = page.getByRole('tab', { name: /页面 2/ })
+  const detailPageId = await detailTab.getAttribute('data-page-id')
+  expect(detailPageId).toBeTruthy()
   await page.getByRole('tab', { name: /首页/ }).click()
 
   await page.getByRole('button', { name: '配置页面事件' }).click()
   let panel = page.getByRole('complementary', { name: '事件配置', exact: true })
   await panel.getByLabel('新建事件').selectOption('pageEnter')
-  await panel.getByRole('button', { name: '+ Refresh' }).click()
+  await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByRole('button', { name: '应用', exact: true }).click()
-  await expect(panel.getByRole('button', { name: /pageEnter/ })).toBeVisible()
+  await expect(panel.getByRole('button', { name: /页面进入/ })).toBeVisible()
   await expect(panel.getByLabel('新增交互动作')).toBeVisible()
   await expect(panel.getByText(/script/i)).toHaveCount(0)
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
@@ -314,7 +584,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.getByRole('button', { name: '配置组件事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
   await panel.getByLabel('新建事件').selectOption('click')
-  await panel.getByRole('button', { name: '+ Refresh' }).click()
+  await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByRole('button', { name: '应用', exact: true }).click()
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
 
@@ -327,7 +597,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
-  await panel.getByRole('button', { name: /click/ }).click()
+  await panel.getByRole('button', { name: /单击/ }).click()
   await panel.getByLabel('启用').uncheck()
   expect(await page.evaluate(() => localStorage.getItem('medical-bi-designer-dashboard-v3') || '')).toBe(persistedBeforeDraft)
 
@@ -344,25 +614,27 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
 
   await page.getByRole('button', { name: '配置页面事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
-  await expect(panel.getByRole('button', { name: /pageEnter/ })).toBeVisible()
+  await expect(panel.getByRole('button', { name: /页面进入/ })).toBeVisible()
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
-  await expect(panel.getByRole('button', { name: /click/ })).toBeVisible()
+  await expect(panel.getByRole('button', { name: /单击/ })).toBeVisible()
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
 
   await page.getByRole('button', { name: '保存', exact: true }).click()
-  await page.evaluate(() => {
-    const key = 'medical-bi-designer-dashboard-v3'
+  await page.evaluate((pageId) => {
+    const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+    const key = `medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`
     const application = JSON.parse(localStorage.getItem(key) || '{}')
-    const detail = application.pages.find((candidate: { code: string }) => candidate.code === 'event_test')
+    const detail = application.pages.find((candidate: { id: string }) => candidate.id === pageId)
     detail.type = 'dialog'
     localStorage.setItem(key, JSON.stringify(application))
-  })
+    localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(application))
+  }, detailPageId)
   await page.reload()
-  await page.getByRole('tab', { name: /事件测试页/ }).click()
+  await page.getByRole('tab', { name: /页面 2/ }).click()
   await page.getByRole('button', { name: '配置页面事件' }).click()
   panel = page.getByRole('complementary', { name: '事件配置', exact: true })
   await expect(panel.getByLabel('新建事件')).toBeVisible()
@@ -380,7 +652,7 @@ test('P9.3 dirty owner 键盘删除支持应用、放弃和取消三分支', asy
     await page.getByRole('button', { name: '配置组件事件' }).click()
     const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
     await panel.getByLabel('新建事件').selectOption('click')
-    await panel.getByRole('button', { name: '+ Refresh' }).click()
+    await panel.getByRole('button', { name: '+ 刷新' }).click()
     return panel
   }
 
@@ -402,14 +674,14 @@ test('P9.3 dirty owner 键盘删除支持应用、放弃和取消三分支', asy
   await expect(panel).toHaveCount(0)
 })
 
-test('P9.3 Refresh 可选择同页多组件且清空 debounce 后不持久化', async ({ page }) => {
+test('P9.3 刷新可选择同页多组件且清空 debounce 后不持久化', async ({ page }) => {
   const components = page.locator('.design-component')
   await components.first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
   const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
   await panel.getByLabel('新建事件').selectOption('click')
-  await panel.getByRole('button', { name: '+ Refresh' }).click()
+  await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByLabel('刷新目标类型').selectOption('components')
   const target = panel.getByLabel('刷新组件')
   const values = await target.locator('option').evaluateAll((options) => options.slice(0, 2).map((option) => (option as HTMLOptionElement).value))
@@ -435,7 +707,8 @@ test('P9.3 Refresh 可选择同页多组件且清空 debounce 后不持久化', 
 test('P9.3 超策略旧 binding 在事件面板全链路只读', async ({ page }) => {
   await page.getByRole('button', { name: '保存', exact: true }).click()
   await page.evaluate(() => {
-    const key = 'medical-bi-designer-dashboard-v3'
+    const workspace = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3') || '{}')
+    const key = `medical-bi-designer-dashboard-v3::${workspace.generation}::${workspace.activeDashboardId}`
     const application = JSON.parse(localStorage.getItem(key) || '{}')
     const component = application.pages[0].components[0]
     component.events = [{
@@ -447,13 +720,14 @@ test('P9.3 超策略旧 binding 在事件面板全链路只读', async ({ page }
       ],
     }]
     localStorage.setItem(key, JSON.stringify(application))
+    localStorage.setItem('medical-bi-designer-dashboard-v3', JSON.stringify(application))
   })
   await page.reload()
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
   const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
-  await panel.getByRole('button', { name: /click/ }).click()
+  await panel.getByRole('button', { name: /单击/ }).click()
   await expect(panel.getByText(/真实绑定目录/)).toBeVisible()
   await expect(panel.getByLabel('启用')).toBeDisabled()
   await expect(panel.getByRole('button', { name: '删除事件' })).toBeDisabled()

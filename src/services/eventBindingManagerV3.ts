@@ -26,7 +26,7 @@ function defaultId(kind: EventEntityKindV3): string { return `${kind}-${crypto.r
 
 function ownerEvents(application: DashboardApplicationV3, resolved: ResolvedEventOwnerV3): EventBindingV3[] {
   const page = application.pages.find((candidate) => candidate.id === resolved.owner.pageId)!
-  return resolved.owner.kind === 'page' ? page.pageEvents : (resolved.component!.events ?? [])
+  return resolved.owner.kind === 'page' ? page.pageEvents : resolved.owner.kind === 'control' ? (resolved.control!.events ?? []) : (resolved.component!.events ?? [])
 }
 
 function collectEntityIds(application: DashboardApplicationV3): Set<string> {
@@ -35,7 +35,7 @@ function collectEntityIds(application: DashboardApplicationV3): Set<string> {
     ids.add(page.id)
     page.controls.forEach((item) => ids.add(item.id))
     for (const component of page.components) ids.add(component.id)
-    for (const binding of [...page.pageEvents, ...page.components.flatMap((item) => item.events ?? [])]) {
+    for (const binding of [...page.pageEvents, ...page.controls.flatMap((item) => item.events ?? []), ...page.components.flatMap((item) => item.events ?? [])]) {
       ids.add(binding.id)
       binding.actions.forEach((item) => ids.add(item.id))
     }
@@ -168,7 +168,7 @@ function inspectAction(
   }
   if (action.type === 'clearLinkage') {
     if (action.linkageActionId) {
-      const target = application.pages.flatMap((page) => [...page.pageEvents, ...page.components.flatMap((component) => component.events ?? [])]).flatMap((event) => event.actions).find((item) => item.id === action.linkageActionId)
+      const target = application.pages.flatMap((page) => [...page.pageEvents, ...page.controls.flatMap((control) => control.events ?? []), ...page.components.flatMap((component) => component.events ?? [])]).flatMap((event) => event.actions).find((item) => item.id === action.linkageActionId)
       if (target?.type !== 'applyLinkage') reasons.push(`${path} 清除目标不是存在的 applyLinkage：${action.linkageActionId}`)
     }
     return
@@ -220,6 +220,10 @@ function requireAuthorable(application: DashboardApplicationV3, owner: EventOwne
 function replaceOwnerEvents(next: DashboardApplicationV3, resolved: ResolvedEventOwnerV3, events: EventBindingV3[]): void {
   const page = next.pages.find((item) => item.id === resolved.owner.pageId)!
   if (resolved.owner.kind === 'page') page.pageEvents = events
+  else if (resolved.owner.kind === 'control') {
+    const controlId = resolved.owner.controlId
+    page.controls.find((item) => item.id === controlId)!.events = events
+  }
   else {
     const componentId = resolved.owner.componentId
     page.components.find((item) => item.id === componentId)!.events = events

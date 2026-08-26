@@ -57,6 +57,15 @@ test('第二维度拆分为独立系列，并保持分类对齐', () => {
   assert.deepEqual(view.series.map((item) => item.values), [[10, 5], [20, 20]])
 })
 
+test('指标系列名称使用别名且不改变排序结果', () => {
+  const view = buildComponentDataView(rows, config('sum', {
+    measures: [{ field: 'amount', alias: '医疗收入', aggregation: 'sum' }],
+    sort: [{ field: 'amount', direction: 'desc' }],
+  }))
+  assert.equal(view.series[0].name, '医疗收入')
+  assert.deepEqual(view.categories, ['2026-01', '2026-02'])
+})
+
 test('数值聚合支持 SUM、AVG、MIN、MAX 和 NONE', () => {
   const expected: Array<[Aggregation, number]> = [
     ['sum', 55],

@@ -19,7 +19,12 @@ export type ParameterValueSourceV3 =
   | { kind: 'static'; options: ParameterOptionV3[] }
   | { kind: 'dictionary'; dictionaryCode: string }
   | { kind: 'system'; systemCode: string }
-  | { kind: 'dataset'; datasetId: string; valueField: string; labelField: string }
+  | { kind: 'dataset'; datasetId: string; valueField: string; labelField: string; dependencies?: ParameterOptionDependencyV3[] }
+
+export interface ParameterOptionDependencyV3 {
+  parameterId: string
+  datasetParameterCode: string
+}
 
 export interface ParameterValidationV3 {
   allowEmpty?: boolean

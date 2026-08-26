@@ -10,7 +10,7 @@ export type DashboardPageTypeV3 = 'standard' | 'dialog'
 export type PreviewScaleModeV3 = 'fit' | 'width' | 'actual'
 export type ParameterPersistenceV3 = 'none' | 'session' | 'url'
 
-export type ParameterControlTypeV3 = 'buttonGroup' | 'singleSelect' | 'multiSelect' | 'date' | 'dateRange'
+export type ParameterControlTypeV3 = 'input' | 'buttonGroup' | 'singleSelect' | 'multiSelect' | 'date' | 'dateRange'
 
 export interface ParameterControlV3 {
   id: string
@@ -23,6 +23,7 @@ export interface ParameterControlV3 {
     clearable: boolean
     cascadeFrom?: string[]
   }
+  events?: EventBindingV3[]
 }
 
 export type EventNameV3 = 'click' | 'doubleClick' | 'valueChange' | 'rowClick' | 'pageEnter'
@@ -150,9 +151,39 @@ export interface DashboardPageV3 {
   pageEvents: EventBindingV3[]
 }
 
+export interface DashboardThemeTokensV3 {
+  canvasBackground: string
+  panelBackground: string
+  panelBorder: string
+  panelRadius: number
+  panelShadow: string
+  textPrimary: string
+  textSecondary: string
+  chartPalette: string[]
+  statusNormal: string
+  statusWarning: string
+  statusDanger: string
+}
+
 export interface ThemeConfigV3 {
   id: string
-  tokens: Record<string, unknown>
+  tokens: Partial<DashboardThemeTokensV3> & Record<string, unknown>
+}
+
+export const lightThemeTokensV3: DashboardThemeTokensV3 = {
+  canvasBackground: '#f7f9fb', panelBackground: '#ffffff', panelBorder: '#e1e7ec',
+  panelRadius: 7, panelShadow: '0 3px 9px rgba(36,52,71,.04)',
+  textPrimary: '#243447', textSecondary: '#64748b',
+  chartPalette: ['#1477c9', '#19a974', '#f59f00', '#8b5cf6', '#ef4444'],
+  statusNormal: '#19a974', statusWarning: '#f59f00', statusDanger: '#d9485f',
+}
+
+export const darkThemeTokensV3: DashboardThemeTokensV3 = {
+  canvasBackground: '#071426', panelBackground: '#0d2138', panelBorder: '#1d4d73',
+  panelRadius: 8, panelShadow: '0 10px 28px rgba(0,10,24,.45)',
+  textPrimary: '#e7f5ff', textSecondary: '#8eb8d8',
+  chartPalette: ['#39b8ff', '#2dd4bf', '#fbbf24', '#a78bfa', '#fb7185'],
+  statusNormal: '#2dd4bf', statusWarning: '#fbbf24', statusDanger: '#fb7185',
 }
 
 export interface DrillPathLevelV3 {

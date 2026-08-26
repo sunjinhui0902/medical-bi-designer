@@ -66,6 +66,30 @@ test('合法 V3 输入幂等读取且不重复生成页面或 ID', () => {
   assert.equal(JSON.stringify(source), snapshot)
 })
 
+test('旧 V3 组合图会在共享迁移层补齐部分分析与系列样式', () => {
+  const source = createDefaultDashboardApplicationV3({ id: 'dashboard-combo-legacy', pageId: 'page-combo-legacy' })
+  const component = migrateDashboard(v2Fixture).components[0]
+  component.type = 'combo'
+  component.analysisConfig = { legendVisible: false } as typeof component.analysisConfig
+  component.dataConfig.measures[0].axis = undefined
+  component.dataConfig.measures[0].chartType = undefined
+  component.dataConfig.measures[0].labelConfig = { show: true } as typeof component.dataConfig.measures[0]['labelConfig']
+  source.pages[0].components = [component]
+  const snapshot = JSON.stringify(source)
+
+  const result = migrateDashboardToV3(source)
+  const migrated = requireMigratedDashboardV3(result).pages[0].components[0]
+
+  assert.equal(migrated.analysisConfig?.legendVisible, false)
+  assert.equal(migrated.analysisConfig?.leftAxisColor, '#64748b')
+  assert.equal(migrated.dataConfig.measures[0].axis, 'left')
+  assert.equal(migrated.dataConfig.measures[0].chartType, 'bar')
+  assert.equal(migrated.dataConfig.measures[0].labelConfig?.show, true)
+  assert.equal(migrated.dataConfig.measures[0].labelConfig?.percentageBase, 'category')
+  assert.match(result.report.warnings.join('；'), /图表组件/)
+  assert.equal(JSON.stringify(source), snapshot)
+})
+
 test('安全扩展字段被保留，凭据类字段不进入 V3 或迁移报告', () => {
   const source = {
     ...(v2Fixture as Record<string, unknown>),

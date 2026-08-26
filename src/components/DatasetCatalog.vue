@@ -18,7 +18,7 @@ export interface CatalogDataset {
   updatedAt: string
 }
 
-defineProps<{ currentId?: string }>()
+const props = defineProps<{ currentId?: string }>()
 const emit = defineEmits<{ choose: [dataset: CatalogDataset]; close: [] }>()
 
 const items = ref<CatalogDataset[]>([])
@@ -29,6 +29,7 @@ const page = ref(1)
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
+const pendingDataset = ref<CatalogDataset | null>(null)
 const pageSize = 12
 let searchTimer: number | undefined
 
@@ -81,6 +82,11 @@ async function request(path: string) {
 function fieldSummary(dataset: CatalogDataset) {
   return dataset.fields.slice(0, 4).map((field) => field.name).join(' · ')
 }
+
+function confirmSelection() {
+  if (!pendingDataset.value || pendingDataset.value.id === props.currentId) return
+  emit('choose', pendingDataset.value)
+}
 </script>
 
 <template>
@@ -98,15 +104,15 @@ function fieldSummary(dataset: CatalogDataset) {
       <div class="catalog-content" :class="{ loading }">
         <div v-if="error" class="catalog-state error">{{ error }}</div>
         <div v-else-if="!items.length && !loading" class="catalog-state"><IconDatabase :size="30" /><b>没有匹配的数据集</b><span>请调整搜索条件，或先前往数据源页面保存数据集。</span></div>
-        <button v-for="dataset in items" v-else :key="dataset.id" type="button" class="catalog-item" :class="{ selected: dataset.id === currentId }" @click="emit('choose', dataset)">
+        <button v-for="dataset in items" v-else :key="dataset.id" type="button" class="catalog-item" :class="{ selected: dataset.id === currentId, pending: dataset.id === pendingDataset?.id }" @click="pendingDataset = dataset">
           <span class="catalog-item-icon"><IconTable :size="19" /></span>
           <span class="catalog-item-main"><b>{{ dataset.name }}</b><small>{{ dataset.notes || '暂无备注' }}</small><em>{{ fieldSummary(dataset) || '尚未识别字段' }}</em></span>
           <span class="catalog-item-meta"><i>{{ dataset.sourceName }}</i><small>{{ dataset.fields.length }} 字段</small></span>
         </button>
       </div>
       <footer>
-        <span>第 {{ page }} / {{ pageCount }} 页，每页 {{ pageSize }} 个</span>
-        <div><button type="button" :disabled="page <= 1 || loading" @click="changePage(page - 1)"><IconChevronLeft :size="16" />上一页</button><button type="button" :disabled="page >= pageCount || loading" @click="changePage(page + 1)">下一页<IconChevronRight :size="16" /></button></div>
+        <span>{{ pendingDataset ? `待切换：${pendingDataset.name}` : `第 ${page} / ${pageCount} 页，每页 ${pageSize} 个` }}</span>
+        <div><button type="button" :disabled="page <= 1 || loading" @click="changePage(page - 1)"><IconChevronLeft :size="16" />上一页</button><button type="button" :disabled="page >= pageCount || loading" @click="changePage(page + 1)">下一页<IconChevronRight :size="16" /></button><button type="button" @click="emit('close')">取消</button><button type="button" class="catalog-confirm" :disabled="!pendingDataset || pendingDataset.id === currentId || loading" @click="confirmSelection">确认切换</button></div>
       </footer>
     </section>
   </div>

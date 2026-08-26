@@ -61,6 +61,13 @@ test('P9.1 creates an empty page without mutating its source', () => {
 
 test('P9.1 copies page entities and rewrites internal refresh targets', () => {
   const source = sourceApplication()
+  source.pages[0].components.push({
+    id: 'component-tabs', type: 'tabs', title: 'Tabs',
+    position: { x: 0, y: 0, width: 500, height: 300, zIndex: 2 },
+    dataConfig: { version: 2, sourceKind: 'mock', datasetId: '', dimensions: [], measures: [], filters: [], sort: [], limit: 100 },
+    styleConfig: { background: '#fff', titleColor: '#000', titleSize: 12, titleWeight: 600, titleVisible: true },
+    tabsConfig: { items: [{ id: 'overview', label: '概览', value: 'overview', componentIds: ['component-chart'], visible: true, padding: 12, gap: 8, background: '#fff' }], activeItemId: 'overview', alignment: 'left', titlePosition: 'top', stylePreset: 'default', titleSize: 38 },
+  })
   const result = copyPageV3(source, source.defaultPageId, { name: 'Copy', code: 'copy' }, copiedId)
   const copied = result.application.pages[1]
   assert.equal(copied.id, 'copy-page-page-home')
@@ -75,7 +82,28 @@ test('P9.1 copies page entities and rewrites internal refresh targets', () => {
     id: 'copy-action-action-refresh-component', type: 'refresh',
     target: { kind: 'components', componentIds: ['copy-component-component-chart'] },
   })
+  assert.deepEqual(copied.components[1].tabsConfig?.items[0].componentIds, ['copy-component-component-chart'])
   assert.equal(validateDashboardApplicationV3(result.application).valid, true)
+})
+
+test('Tab 内容引用拒绝悬空、嵌套和重复归属', () => {
+  const source = sourceApplication()
+  const tab = (id: string, componentIds: string[]) => ({
+    id, type: 'tabs' as const, title: id,
+    position: { x: 0, y: 0, width: 500, height: 300, zIndex: 2 },
+    dataConfig: { version: 2 as const, sourceKind: 'mock' as const, datasetId: '', dimensions: [], measures: [], filters: [], sort: [], limit: 100 },
+    styleConfig: { background: '#fff', titleColor: '#000', titleSize: 12, titleWeight: 600, titleVisible: true },
+    tabsConfig: { items: [{ id: 'overview', label: '概览', value: 'overview', componentIds, visible: true, padding: 12, gap: 8, background: '#fff' }], activeItemId: 'overview', alignment: 'left' as const, titlePosition: 'top' as const, stylePreset: 'default' as const, titleSize: 38 },
+  })
+  source.pages[0].components.push(tab('tab-a', ['component-chart', 'missing']), tab('tab-b', ['component-chart', 'tab-a']))
+  source.pages[0].components.at(-2)!.tabsConfig!.items[0].visible = false
+  const result = validateDashboardApplicationV3(source)
+  assert.equal(result.valid, false)
+  assert.equal(result.issues.some((issue) => issue.keyword === 'tabComponentReference'), true)
+  assert.equal(result.issues.some((issue) => issue.keyword === 'tabNesting'), true)
+  assert.equal(result.issues.some((issue) => issue.keyword === 'uniqueTabOwnership'), true)
+  assert.equal(result.issues.some((issue) => issue.keyword === 'tabVisibleItem'), true)
+  assert.equal(result.issues.some((issue) => issue.keyword === 'tabDefaultVisible'), true)
 })
 
 test('P9.1 rejects deletion of the last or current default page', () => {

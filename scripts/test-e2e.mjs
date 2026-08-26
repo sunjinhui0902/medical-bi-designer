@@ -46,6 +46,12 @@ function waitForClose(child, timeoutMs) {
 async function stopOwned(child) {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
   if (process.platform === 'win32') {
+    // These servers are direct Node children. Terminate the owned process first;
+    // taskkill can be unavailable in restricted Windows sessions even when the
+    // child itself remains terminable through Node's process handle.
+    child.kill()
+    await waitForClose(child, 2_000)
+    if (child.exitCode !== null || child.signalCode !== null) return
     await new Promise((resolve) => {
       const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
         stdio: 'ignore',
@@ -76,7 +82,7 @@ function shutdown() {
   return shutdownPromise
 }
 
-async function waitForOwnedPortsToClose(timeoutMs = 3_000) {
+async function waitForOwnedPortsToClose(timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const listening = await Promise.all([5174, 5175].map(isListening))
@@ -163,7 +169,7 @@ async function main() {
   })
   const vite = spawnOwned(
     process.execPath,
-    ['node_modules/vite/bin/vite.js', '--host', HOST, '--port', '5174', '--strictPort'],
+    ['node_modules/vite/bin/vite.js', '--configLoader', 'runner', '--host', HOST, '--port', '5174', '--strictPort'],
   )
   await Promise.all([
     waitForHealth('http://127.0.0.1:5175/api/health', api, 'API server'),

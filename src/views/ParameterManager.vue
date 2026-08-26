@@ -28,14 +28,19 @@ import {
   ParameterRegistryV3,
 } from '../services/parameterRegistry'
 import {
-  loadDashboardApplicationV3,
-  saveDashboardApplicationV3,
-} from '../services/dashboardStorageV3'
+  activeDashboardApplicationV3,
+  loadDashboardWorkspaceV3,
+  saveDashboardWorkspaceV3,
+  upsertDashboardApplicationInWorkspaceV3,
+  type DashboardWorkspaceV3,
+} from '../services/dashboardWorkspaceV3'
 
 interface OptionForm {
   label: string
   value: string
 }
+
+interface DatasetDependencyForm { parameterId: string; datasetParameterCode: string }
 
 interface ParameterForm {
   id: string
@@ -50,6 +55,10 @@ interface ParameterForm {
   sourceKind: ParameterValueSourceV3['kind']
   dictionaryCode: string
   systemCode: string
+  datasetId: string
+  valueField: string
+  labelField: string
+  dependencies: DatasetDependencyForm[]
   options: OptionForm[]
 }
 
@@ -59,6 +68,7 @@ const selectedId = ref('')
 const feedback = ref('正在读取 V3 草稿…')
 const feedbackTone = ref<'neutral' | 'success' | 'error'>('neutral')
 const application = ref<DashboardApplicationV3 | null>(null)
+const workspace = ref<DashboardWorkspaceV3 | null>(null)
 let registry = new ParameterRegistryV3()
 
 const form = reactive<ParameterForm>(emptyForm())
@@ -86,6 +96,10 @@ function emptyForm(): ParameterForm {
     sourceKind: 'static',
     dictionaryCode: 'builtin.year',
     systemCode: 'currentDate',
+    datasetId: '',
+    valueField: '',
+    labelField: '',
+    dependencies: [],
     options: [],
   }
 }
@@ -123,6 +137,12 @@ function editParameter(parameter: ParameterDefinitionV3): void {
     systemCode: parameter.source.kind === 'system'
       ? parameter.source.systemCode
       : 'currentDate',
+    datasetId: parameter.source.kind === 'dataset' ? parameter.source.datasetId : '',
+    valueField: parameter.source.kind === 'dataset' ? parameter.source.valueField : '',
+    labelField: parameter.source.kind === 'dataset' ? parameter.source.labelField : '',
+    dependencies: parameter.source.kind === 'dataset'
+      ? (parameter.source.dependencies ?? []).map((item) => ({ ...item }))
+      : [],
     options: parameter.source.kind === 'static'
       ? parameter.source.options.map((option) => ({
           label: option.label,
@@ -153,6 +173,18 @@ function buildSource(): ParameterValueSourceV3 {
   if (form.sourceKind === 'system') {
     return { kind: 'system', systemCode: form.systemCode }
   }
+  if (form.sourceKind === 'dataset') {
+    return {
+      kind: 'dataset',
+      datasetId: form.datasetId.trim(),
+      valueField: form.valueField.trim(),
+      labelField: form.labelField.trim(),
+      dependencies: form.dependencies.map((item) => ({
+        parameterId: item.parameterId,
+        datasetParameterCode: item.datasetParameterCode.trim(),
+      })),
+    }
+  }
   return {
     kind: 'static',
     options: form.options.map((option) => ({
@@ -177,15 +209,18 @@ function buildDefinition(): Omit<ParameterDefinitionV3, 'id'> {
 }
 
 function persistRegistry(message: string): boolean {
-  if (!application.value) return false
-  application.value.parameters = registry.toJSON()
-  const result = saveDashboardApplicationV3(localStorage, application.value)
+  if (!application.value || !workspace.value) return false
+  const nextApplication = { ...application.value, parameters: registry.toJSON() }
+  const nextWorkspace = upsertDashboardApplicationInWorkspaceV3(workspace.value, nextApplication, true)
+  const result = saveDashboardWorkspaceV3(localStorage, nextWorkspace)
   if (!result.success) {
     setFeedback(result.errors.join('；'), 'error')
     return false
   }
+  application.value = nextApplication
+  workspace.value = nextWorkspace
   parameters.value = registry.list()
-  setFeedback(message, 'success')
+  setFeedback([message, ...result.warnings].join(' · '), 'success')
   return true
 }
 
@@ -237,6 +272,13 @@ function removeOption(index: number): void {
   form.options.splice(index, 1)
 }
 
+function addDependency(): void {
+  const candidate = parameters.value.find((parameter) => parameter.id !== form.id && !form.dependencies.some((item) => item.parameterId === parameter.id))
+  form.dependencies.push({ parameterId: candidate?.id ?? '', datasetParameterCode: candidate?.code ?? '' })
+}
+
+function removeDependency(index: number): void { form.dependencies.splice(index, 1) }
+
 function showError(error: unknown): void {
   if (error instanceof ParameterRegistryErrorV3) {
     setFeedback(error.issues.map((item) => item.message).join('；'), 'error')
@@ -264,10 +306,11 @@ function defaultLabel(parameter: ParameterDefinitionV3): string {
 }
 
 onMounted(() => {
-  const result = loadDashboardApplicationV3(localStorage)
-  application.value = result.application
+  const result = loadDashboardWorkspaceV3(localStorage)
+  workspace.value = result.workspace
+  application.value = activeDashboardApplicationV3(result.workspace)
   try {
-    registry = new ParameterRegistryV3(result.application.parameters)
+    registry = new ParameterRegistryV3(application.value.parameters)
     parameters.value = registry.list()
     const details = [
       `来源：${result.source.toUpperCase()}`,
@@ -380,6 +423,7 @@ onMounted(() => {
                 <option value="static">静态选项</option>
                 <option value="dictionary">内置字典</option>
                 <option value="system">系统上下文</option>
+                <option value="dataset">数据集动态选项</option>
               </select>
             </label>
           </div>
@@ -419,6 +463,27 @@ onMounted(() => {
               <select v-model="form.systemCode"><option value="currentDate">当前日期</option></select>
             </label>
             <p>Phase7 只保存受控系统来源定义，不计算运行值。</p>
+          </div>
+
+          <div v-else-if="form.sourceKind === 'dataset'" class="parameter-source-block">
+            <div class="source-block-head"><span><b>数据集动态选项</b><small>通过只读选项接口加载，可按上游参数级联</small></span></div>
+            <div class="parameter-form-grid">
+              <label>数据集 ID<input v-model="form.datasetId" placeholder="例如：organization_options" /></label>
+              <label>选项值字段<input v-model="form.valueField" placeholder="例如：org_code" /></label>
+              <label>显示名称字段<input v-model="form.labelField" placeholder="例如：org_name" /></label>
+            </div>
+            <div class="source-block-head"><span><b>级联依赖</b><small>上游参数值映射到数据集查询参数</small></span><button type="button" @click="addDependency"><IconPlus :size="14" />添加依赖</button></div>
+            <div class="option-list">
+              <div v-for="(dependency, index) in form.dependencies" :key="index">
+                <select v-model="dependency.parameterId">
+                  <option value="">选择上游参数</option>
+                  <option v-for="candidate in parameters.filter((item) => item.id !== form.id)" :key="candidate.id" :value="candidate.id">{{ candidate.name }}（{{ candidate.code }}）</option>
+                </select>
+                <input v-model="dependency.datasetParameterCode" placeholder="数据集参数编码" />
+                <button type="button" aria-label="删除依赖" @click="removeDependency(index)"><IconTrash :size="14" /></button>
+              </div>
+              <p v-if="!form.dependencies.length">无依赖时加载全部选项；添加依赖后按上游值自动刷新。</p>
+            </div>
           </div>
 
           <div v-else class="parameter-source-block">

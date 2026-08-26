@@ -92,3 +92,12 @@ test('组件绑定配置从 V2 升级为 V3 并保留既有查询配置', () => 
   assert.deepEqual(upgraded.parameterBindings, [{ datasetParameterCode: 'year_code', parameterId: 'p-year' }])
   assert.equal(upgraded.refreshPolicy, 'manual')
 })
+
+test('组件绑定升级接受设计器响应式代理形态的 JSON 配置', () => {
+  const legacy = new Proxy<ComponentDataConfigV2>({
+    version: 2, sourceKind: 'server', datasetId: 'dataset-live', dimensions: [], measures: [], filters: [], sort: [], limit: 200,
+  }, {})
+
+  assert.doesNotThrow(() => upgradeComponentDataConfigV3(legacy))
+  assert.equal(upgradeComponentDataConfigV3(legacy).datasetId, 'dataset-live')
+})

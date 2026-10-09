@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   IconArrowLeft,
+  IconBookmark,
   IconBraces,
   IconCheck,
   IconCopy,
@@ -336,6 +337,7 @@ onMounted(() => {
         <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink>
         <RouterLink to="/data-sources"><IconDatabase :size="16" />数据源</RouterLink>
         <RouterLink to="/datasets"><IconTable :size="16" />数据集</RouterLink>
+        <RouterLink to="/knowledge"><IconBookmark :size="16" />知识库</RouterLink>
       </nav>
     </header>
 

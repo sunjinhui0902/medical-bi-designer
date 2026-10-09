@@ -131,6 +131,9 @@ export function reparentComponentV3(
 
   const owners = tabOwnersForComponentV3(components, componentId)
   if (owners.length > 1) return { success: false, error: '组件存在重复页签归属，已拒绝移动' }
+  if (component.groupId && (target.kind === 'canvas' ? owners.length > 0 : owners[0]?.tab.id !== target.tabId || owners[0]?.item.id !== target.itemId)) {
+    return { success: false, error: '跨容器移动请先取消组合' }
+  }
 
   let targetTab: DashboardComponent | undefined
   let targetItem: TabItemConfig | undefined

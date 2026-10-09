@@ -4,7 +4,7 @@ import { createServer } from 'node:http'
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
@@ -16,6 +16,28 @@ import {
   validateDatasetQueryParameters,
 } from './query-parameters.mjs'
 import { applyDatasetRuntimeView, compileDatasetOptionsQuery, compileDatasetPagedQuery, compileDatasetRuntimeQuery } from './query-plan.mjs'
+import {
+  getKnowledgeOverview,
+  getKnowledgeAssets,
+  getKnowledgeAssetDetail,
+  getKnowledgeRelationsGraph,
+  getKnowledgeSources,
+  getKnowledgeEvaluations,
+  getKnowledgeUserProfile,
+  updateKnowledgeAsset,
+  updateKnowledgeAssetStatus,
+  importKnowledgeSource,
+} from './knowledge.mjs'
+import { getLocalBaselineCatalog, getLocalBaselineSeries } from './local-baselines.mjs'
+import { planLocalQuestion } from './local-question-plan.mjs'
+import { planLocalDashboard, getLocalSeriesDataset, executeLocalSeriesDataset, isLocalSeriesId } from './local-dashboard-plan.mjs'
+import { getLocalBusinessDataset, executeLocalBusinessDataset, isLocalBusinessId } from './local-business-drill.mjs'
+import { getOverviewDataset, executeOverviewDataset, isOverviewId, assembleOverview, readOverviewSnapshot } from './hospital-overview.mjs'
+import { createHospitalGeneration, getHospitalGeneration } from './hospital-generation.mjs'
+import { createModelProviderService } from './model-provider.mjs'
+import { readJson, writeJson, withJsonMutation, ensureFile } from './json-storage.mjs'
+import { validateLocalRequest } from './local-request-policy.mjs'
+import { createNegotiatingPool } from './database-tls.mjs'
 
 const { Pool } = pg
 const execFileAsync = promisify(execFile)
@@ -24,6 +46,7 @@ const dataRoot = path.join(serverRoot, '.data')
 const sourceFile = path.join(dataRoot, 'datasources.json')
 const datasetFile = path.join(dataRoot, 'datasets.json')
 const keyFile = path.join(dataRoot, 'secret.key')
+const modelProviderService = createModelProviderService({file:path.join(dataRoot,'model-providers.json'),encrypt,decrypt})
 const apiPort = Number(process.env.BI_API_PORT || 5174)
 const maxRows = 200
 const timeoutMs = 8000
@@ -57,9 +80,20 @@ const demoData = {
 await initializeStorage()
 
 createServer(async (request, response) => {
-  if (request.method === 'OPTIONS') return send(response, 204)
   try {
+    validateLocalRequest(request.headers, apiPort)
+    if (request.headers.origin) response.setHeader('Access-Control-Allow-Origin', request.headers.origin)
+    if (request.method === 'OPTIONS') return send(response, 204)
     const url = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`)
+    if(url.pathname.startsWith('/api/model-settings')) {
+      if(request.method==='GET'&&url.pathname==='/api/model-settings')return json(response,200,await modelProviderService.summary())
+      if(request.method==='POST') {
+        const body=await readBody(request)
+        if(url.pathname==='/api/model-settings')return json(response,200,await modelProviderService.save(body))
+        if(url.pathname==='/api/model-settings/test')return json(response,200,await modelProviderService.test(body))
+        if(url.pathname==='/api/model-settings/active'){if(Object.keys(body||{}).some(k=>k!=='provider'))throw clientError(400,'默认模型选项无效');return json(response,200,await modelProviderService.activate(body?.provider))}
+      }
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
       return json(response, 200, { ok: true, service: 'medical-bi-api', databaseDriver: 'pg' })
@@ -76,6 +110,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'POST' && url.pathname === '/api/datasources') {
+      return await withJsonMutation(sourceFile, async () => {
       const body = normalizeSource(await readBody(request))
       const sources = await readJson(sourceFile, [])
       const id = body.id || `source-${randomUUID()}`
@@ -89,10 +124,14 @@ createServer(async (request, response) => {
       delete saved.password
       await writeJson(sourceFile, [...sources.filter((item) => item.id !== id), saved])
       return json(response, 201, toPublicSource(saved))
+      })
     }
 
     if (request.method === 'GET' && url.pathname === '/api/datasets') {
       const datasets = await readDatasets()
+      const localIds = [...new Set((url.searchParams.get('localIds') || '').split(',').filter(Boolean))]
+      if (localIds.length > 8) throw clientError(400, '本地趋势数据集数量过多')
+      for (const id of localIds) datasets.push(await (isLocalBusinessId(id) ? getLocalBusinessDataset(id) : getLocalSeriesDataset(id)))
       const wantsCatalog = url.searchParams.has('paged') || url.searchParams.has('q') || url.searchParams.has('sourceId')
         || url.searchParams.has('status') || url.searchParams.has('category')
       if (!wantsCatalog) return json(response, 200, datasets)
@@ -119,6 +158,9 @@ createServer(async (request, response) => {
 
     const datasetDetailMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)$/)
     if (request.method === 'GET' && datasetDetailMatch) {
+      if (isOverviewId(decodeURIComponent(datasetDetailMatch[1]))) return json(response,200,await getOverviewDataset(decodeURIComponent(datasetDetailMatch[1])))
+      if (isLocalBusinessId(decodeURIComponent(datasetDetailMatch[1]))) return json(response, 200, await getLocalBusinessDataset(decodeURIComponent(datasetDetailMatch[1])))
+      if (isLocalSeriesId(decodeURIComponent(datasetDetailMatch[1]))) return json(response, 200, await getLocalSeriesDataset(decodeURIComponent(datasetDetailMatch[1])))
       const datasets = await readDatasets()
       const dataset = datasets.find((item) => item.id === decodeURIComponent(datasetDetailMatch[1]))
       if (!dataset) throw clientError(404, '数据集不存在')
@@ -126,12 +168,14 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'DELETE' && datasetDetailMatch) {
+      return await withJsonMutation(datasetFile, async () => {
       const id = decodeURIComponent(datasetDetailMatch[1])
       const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
       const dataset = datasets.find((item) => item.id === id)
       if (!dataset) throw clientError(404, '数据集不存在')
       await writeJson(datasetFile, datasets.filter((item) => item.id !== id))
       return json(response, 200, { id, name: dataset.name, deleted: true })
+      })
     }
 
     if (request.method === 'POST' && url.pathname === '/api/query/preview') {
@@ -141,10 +185,13 @@ createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/datasets') {
       const body = await readBody(request)
+      if (isLocalSeriesId(body?.id) || isLocalBusinessId(body?.id)) throw clientError(400, '本地快照数据集只读，不可覆盖')
       if (!body.name?.trim()) throw clientError(400, '请填写数据集名称')
       const preview = await previewQuery(body.dataSourceId, body.sql, Math.min(Number(body.limit) || 50, maxRows))
+      return await withJsonMutation(datasetFile, async () => {
       const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
       const id = body.id || `dataset-${randomUUID()}`
+      if(isOverviewId(id))throw clientError(400,'医院概览数据集只读')
       const previous = datasets.find((item) => item.id === id)
       const now = new Date().toISOString()
       const fieldSettings = new Map((Array.isArray(body.fields) ? body.fields : []).map((field) => [field.name, field]))
@@ -170,12 +217,14 @@ createServer(async (request, response) => {
       }
       await writeJson(datasetFile, [...datasets.filter((item) => item.id !== id), saved])
       return json(response, 201, saved)
+      })
     }
 
     const statusMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)\/status$/)
     if (request.method === 'POST' && statusMatch) {
       const body = await readBody(request)
       if (!['draft', 'validated', 'disabled'].includes(body.status)) throw clientError(400, '数据集状态无效')
+      return await withJsonMutation(datasetFile, async () => {
       const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
       const id = decodeURIComponent(statusMatch[1])
       const target = datasets.find((item) => item.id === id)
@@ -184,10 +233,12 @@ createServer(async (request, response) => {
       target.updatedAt = new Date().toISOString()
       await writeJson(datasetFile, datasets)
       return json(response, 200, target)
+      })
     }
 
     const copyMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)\/copy$/)
     if (request.method === 'POST' && copyMatch) {
+      return await withJsonMutation(datasetFile, async () => {
       const datasets = (await readJson(datasetFile, [])).map(normalizeDataset)
       const source = datasets.find((item) => item.id === decodeURIComponent(copyMatch[1]))
       if (!source) throw clientError(404, '数据集不存在')
@@ -195,6 +246,7 @@ createServer(async (request, response) => {
       const copy = { ...source, id: `dataset-${randomUUID()}`, code: `${source.code}_copy`, name: `${source.name} - 副本`, status: 'draft', createdAt: now, updatedAt: now }
       await writeJson(datasetFile, [...datasets, copy])
       return json(response, 201, copy)
+      })
     }
 
     const executeMatch = url.pathname.match(/^\/api\/datasets\/([^/]+)\/execute$/)
@@ -203,8 +255,12 @@ createServer(async (request, response) => {
       let executionRequest
       try { executionRequest = validateDatasetExecutionRequest(body) }
       catch (error) { throw clientError(400, error.message) }
+      const id = decodeURIComponent(executeMatch[1])
+      if (isOverviewId(id)) return json(response,200,await executeOverviewDataset(id,executionRequest))
+      if (isLocalBusinessId(id)) return json(response, 200, await executeLocalBusinessDataset(id, executionRequest))
+      if (isLocalSeriesId(id)) return json(response, 200, await executeLocalSeriesDataset(id, executionRequest))
       const datasets = await readDatasets()
-      const dataset = datasets.find((item) => item.id === decodeURIComponent(executeMatch[1]))
+      const dataset = datasets.find((item) => item.id === id)
       if (!dataset) throw clientError(404, '数据集不存在')
       return json(response, 200, await executeDatasetQuery(dataset, executionRequest.parameters, executionRequest.limit, executionRequest.view, executionRequest.pagination))
     }
@@ -222,6 +278,89 @@ createServer(async (request, response) => {
       return json(response, 200, await executeDatasetOptions(dataset, body))
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/overview') {
+      return json(response, 200, await getKnowledgeOverview())
+    }
+    if(request.method==='GET'&&url.pathname==='/api/knowledge/hospital-overview')return json(response,200,assembleOverview(await readOverviewSnapshot()))
+    if(request.method==='POST'&&url.pathname==='/api/knowledge/hospital-model') {const body=await readBody(request);if(!['api','chatgpt-web'].includes(body?.mode||'chatgpt-web'))throw clientError(400,'模型生成入口无效');return json(response,202,await createHospitalGeneration(body?.question,body?.month,{apiService:modelProviderService,mode:body?.mode||'chatgpt-web',provider:body?.provider}))}
+    const hospitalGenerationMatch=url.pathname.match(/^\/api\/knowledge\/hospital-model\/([a-f0-9-]{36})$/)
+    if(request.method==='GET'&&hospitalGenerationMatch)return json(response,200,await getHospitalGeneration(hospitalGenerationMatch[1]))
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/local-bindings') {
+      return json(response, 200, await getLocalBaselineCatalog())
+    }
+
+    const localSeriesMatch = url.pathname.match(/^\/api\/knowledge\/local-bindings\/([^/]+)\/series$/)
+    if (request.method === 'GET' && localSeriesMatch) {
+      const options = Object.fromEntries(url.searchParams)
+      return json(response, 200, await getLocalBaselineSeries(decodeURIComponent(localSeriesMatch[1]), options))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/knowledge/local-dashboard-plan') {
+      const body = await readBody(request)
+      return json(response, 200, await planLocalDashboard(body?.question))
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/knowledge/local-plan') {
+      const body = await readBody(request)
+      return json(response, 200, await planLocalQuestion(body?.question))
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/assets') {
+      const category = url.searchParams.get('category') || null
+      const keyword = url.searchParams.get('q') || ''
+      const status = url.searchParams.get('status') || ''
+      const scope = url.searchParams.get('scope') || ''
+      const unresolved = url.searchParams.get('unresolved') === 'true'
+      return json(response, 200, await getKnowledgeAssets(category, keyword, status, scope, unresolved))
+    }
+
+    const knowledgeAssetDetailMatch = url.pathname.match(/^\/api\/knowledge\/assets\/([^/]+)$/)
+    if (request.method === 'GET' && knowledgeAssetDetailMatch) {
+      const assetId = decodeURIComponent(knowledgeAssetDetailMatch[1])
+      const detail = await getKnowledgeAssetDetail(assetId)
+      if (!detail) throw clientError(404, '知识资产不存在')
+      return json(response, 200, detail)
+    }
+
+    if (request.method === 'POST' && knowledgeAssetDetailMatch) {
+      const assetId = decodeURIComponent(knowledgeAssetDetailMatch[1])
+      const body = await readBody(request)
+      const updated = await updateKnowledgeAsset(assetId, body)
+      return json(response, 200, updated)
+    }
+
+    const knowledgeStatusMatch = url.pathname.match(/^\/api\/knowledge\/assets\/([^/]+)\/status$/)
+    if (request.method === 'POST' && knowledgeStatusMatch) {
+      const assetId = decodeURIComponent(knowledgeStatusMatch[1])
+      const body = await readBody(request)
+      if (!body.status) throw clientError(400, '缺少 status 参数')
+      const updated = await updateKnowledgeAssetStatus(assetId, body.status)
+      return json(response, 200, updated)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/knowledge/sources/import') {
+      const body = await readBody(request)
+      const result = await importKnowledgeSource(body)
+      return json(response, 201, result)
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/relations') {
+      return json(response, 200, await getKnowledgeRelationsGraph())
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/sources') {
+      return json(response, 200, await getKnowledgeSources())
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/evaluations') {
+      return json(response, 200, await getKnowledgeEvaluations())
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/knowledge/profile') {
+      return json(response, 200, await getKnowledgeUserProfile())
+    }
+
     return json(response, 404, { error: '接口不存在' })
   } catch (error) {
     const status = Number(error?.status) || 500
@@ -233,21 +372,15 @@ createServer(async (request, response) => {
 async function initializeStorage() {
   await mkdir(dataRoot, { recursive: true })
   for (const [file, initial] of [[sourceFile, []], [datasetFile, []]]) {
-    try { await readFile(file) } catch { await writeJson(file, initial) }
+    await ensureFile(file, `${JSON.stringify(initial)}\n`)
+    await readJson(file, initial)
   }
-  try { await readFile(keyFile) } catch { await writeFile(keyFile, randomBytes(32), { mode: 0o600 }) }
-}
-
-async function readJson(file, fallback) {
-  try { return JSON.parse(await readFile(file, 'utf8')) } catch { return fallback }
+  const key = await ensureFile(keyFile, randomBytes(32))
+  if (key.length !== 32) throw new Error('本地密钥文件无效，已保留原文件')
 }
 
 async function readDatasets() {
   return (await readJson(datasetFile, [])).map(normalizeDataset)
-}
-
-async function writeJson(file, value) {
-  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
 async function secretKey() {
@@ -548,19 +681,18 @@ async function executeDatasetOptions(dataset, request) {
 
 function createPool(source) {
   const schema = source.defaultSchema || 'public'
-  return new Pool({
+  return createNegotiatingPool(Pool, {
     host: source.host,
     port: source.port,
     database: source.database,
     user: source.username,
     password: source.password,
-    ssl: source.ssl ? { rejectUnauthorized: false } : false,
     options: `-c search_path=${schema},public`,
     application_name: 'medical-bi-designer',
     max: 1,
     connectionTimeoutMillis: (source.connectTimeoutSeconds || defaultConnectTimeoutSeconds) * 1000,
     idleTimeoutMillis: 1000,
-  })
+  }, source)
 }
 
 function normalizeConnectionError(error) {
@@ -638,9 +770,9 @@ function clientError(status, message) {
 
 function send(response, status, body = '') {
   response.writeHead(status, {
-    'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+    'Vary': 'Origin',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
   })
   response.end(body)
 }

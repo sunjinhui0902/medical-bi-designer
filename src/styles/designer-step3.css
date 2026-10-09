@@ -133,6 +133,9 @@
   text-shadow: 0 0 24px color-mix(in srgb,var(--theme-text,#203246) 14%,transparent);
 }
 .kpi-value small { margin-left: 7px; color: var(--theme-text-secondary,#8c98a4); font-family:"Microsoft YaHei UI",sans-serif;font-size: 11px; font-weight: 500; letter-spacing: 0; }
+/* Narrow cards in the hospital template must show complete values and units. */
+[data-component-id^="hospital-ai-"] .kpi-value { font-size: clamp(16px, 1.5vw, 26px); overflow-wrap: anywhere; }
+[data-component-id^="hospital-ai-"] .kpi-value small { display: block; margin: 7px 0 0; }
 .kpi-trend { display: flex; align-items: center; gap: 4px; margin: 9px 0 0; color: var(--theme-text-secondary,#64748b); font-size: 9px; }
 .text-preview { display: block; margin-top: 5px; font-size: 14px; }
 .text-note { margin: 5px 0 0; color: #87939f; font-size: 9px; }

@@ -1,7 +1,7 @@
 # Medical BI Designer
 
 Medical BI Designer 是一个面向医疗运营分析场景的开源低代码 BI 设计器，提供数据集建模、可视化组件、参数筛选、多页面交互和本机看板工作区等通用能力。
-当前公开版本基于 V2.0 可视化底座和 V3 Phase7—Phase10 运行时，已支持参数化查询、动态选项、多页面事件、组件联动、下钻、导航、弹窗、页签容器和自适应预览。下一阶段为 Phase11 发布与治理，尚未启动。
+当前公开版本基于 V2.0 可视化底座和 V3 Phase7—Phase10 运行时，已支持参数化查询、动态选项、多页面事件、组件联动、下钻、导航、弹窗、页签容器和自适应预览。本地工作区已继续实现知识资产管理、受限医院模板计划生成和四页门诊样例；这些未提交候选不等同于公开版本或任意业务提示词生成能力。
 
 v0.1.0 is the first public Open Source release of Medical BI Designer, based on the existing V2.0 development baseline.
 v0.1.0 为 Medical BI Designer 的首个公开开源版本，基于现有 V2.0 开发基线发布。
@@ -78,13 +78,15 @@ Phase8—Phase10 已完成以下核心能力并通过阶段验收；正式版本
 - Reusable dashboard templates
 - Expanded automated testing
 
-### v0.3 — AI Analytics
-- Natural-language-to-SQL prototype
-- AI-assisted metric analysis
-- Metadata understanding
-- Dataset semantic analysis
-- AI-assisted dashboard generation
-- Intelligent analytics workflows
+### v0.3 — Knowledge Assets & Intelligent Analytics（规划已确认）
+
+- Verifiable healthcare BI knowledge assets
+- Metric, model, SQL, template, and lineage specifications
+- Dashboard Template Blueprint and V3 JSON compilation
+- Data profiling, anomaly, contribution, and forecasting contracts
+- Evidence-backed, human-reviewed dashboard draft generation
+
+权威路线见 [医疗 BI AI 知识资产与智能分析路线规划 V2](./docs/05_AI规划/医疗BI_AI知识资产与智能分析路线规划_V2.md)。
 
 ## 快速启动
 
@@ -128,6 +130,17 @@ npm run dev
 
 ## 开发入口
 
+### 验证入口
+
+- `npm test`：公开回归，收集顶层 `.test.ts` 和 `.test.mjs`，不依赖私有 ADS 快照。
+- `npm run test:local`：本地证据测试，需要本机知识资产及 `server/.data` 的只读快照；缺失时明确失败。
+- `npm run test:all`：上述两组全部运行；不连接数据库。
+- `npm run test:outpatient`：已有本地开发服务上的门诊页面验收，包括下载、返回及保存重开。
+- `npm run test:e2e`：独占开发端口的通用浏览器回归；端口已被占用时拒绝运行，不停止用户的开发服务。
+- `npm run build`：类型检查与生产构建。
+
+本地样例菜单使用随源码维护的模板计划，不依赖历史 ChatGPT 请求文件。实际业务数据仍由本地证据提供，不会用演示数据填补缺失。新业务提示词生成四页原生 V3 配置仍待验收。详细优先级见 [2026-10-08 项目复查](./docs/project-review-20261008.md)。
+
 - [项目当前状态](./docs/项目当前状态.md)
 - [Phase8 实施方案](./docs/02_V3架构/Phase8实施方案.md)
 - [Phase8 最终验收记录](./docs/04_测试验证/验收记录/Phase8最终验收记录.md)
@@ -140,6 +153,15 @@ npm run dev
 - [设计器通用能力增强记录](./docs/02_V3架构/设计器通用能力增强记录-20260826.md)
 - [AI 开发交接](./AI_Development_Handover.md)
 - [文档中心](./docs/README.md)
+
+## 本地演示收尾（2026-10-08）
+
+- 看板管理选择「门诊运营分析 · 五页样例」，或通过「提示词样例」导入本地输出示例；历史看板不自动覆盖。
+- 「刷新本地展示」只重新读取已有本地快照与当前页组件，不查询远程 ODR、不采集数据库；院级采集时间显示在画布信息栏。
+- 已有快照文件更新后可手工刷新；数据库采集仍是独立只读脚本，未接成定时任务。
+- 知识库根可在启动 API 前设置 `TYBI_KNOWLEDGE_ROOT`，目录需包含 `02_assets`；不设置时沿用现有搜索路径。配置无效会明确失败，不静默切换知识库。
+- 本地 JSON 修改使用同进程队列及跨进程 `.mutation.lock`。异常退出可能残留锁；保存等待10秒后报错并保留原文件，应确认进程已退出后处理残留锁。
+- 完整证据见 [演示收尾](docs/demo-closeout-20261008.md)。API、医生对账和准确性验收按用户要求暂停。
 
 ## Commercial Licensing
 

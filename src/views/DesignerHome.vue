@@ -1,4 +1,25 @@
 <script setup lang="ts">
+import LocalDashboardAssistant from "../components/LocalDashboardAssistant.vue";
+import { alignmentGuidesV3 } from '../services/alignmentGuidesV3';
+import { applyDashboardThemeV3 } from '../services/dashboardThemeV3';
+import { vFloatingPanel } from '../directives/floatingPanel';
+import { createHospitalOverviewDraft } from "../services/hospitalOverviewDraft";
+import { createBusinessInteractionDraft } from "../services/businessInteractionDraft";
+import { createOutpatientOperationsDraft } from "../services/outpatientOperationsDraft";
+import { createHospitalSamplePlan, hospitalSamplePlanId } from "../services/dashboardSamplePlans";
+import { responsiveLayoutV3 } from "../services/responsiveLayoutV3";
+import { tableQueryScopeV3 } from "../services/tableDisplayPolicyV3";
+import { readQueryResponseV3 } from "../services/queryResponseV3";
+import OutpatientPromptAssistant from "../components/OutpatientPromptAssistant.vue";
+import InteractionTeachingAssistant from "../components/InteractionTeachingAssistant.vue";
+import LocalDashboardEditor from "../components/LocalDashboardEditor.vue";
+import RuntimeParameterControlsV3 from "../components/RuntimeParameterControlsV3.vue";
+import RuntimePageSurfaceV3 from "../components/RuntimePageSurfaceV3.vue";
+import ComponentCompositionPanel from "../components/ComponentCompositionPanel.vue";
+import CompositionOutline from "../components/CompositionOutline.vue";
+import { compositionMembersV3, compositionBoundsV3, compositionScopeV3, cleanCompositionsV3, transformCompositionV3 } from "../services/componentCompositionV3";
+import { assertLocalEditCurrent, type LocalEditPreview } from "../services/localDashboardEdit";
+import { resolveInteractionTableColumns, resolveDrillDisplayValue } from "../services/interactionPresentationV3";
 import {
   computed,
   nextTick,
@@ -6,10 +27,12 @@ import {
   onMounted,
   ref,
   shallowRef,
+  watch,
 } from "vue";
 import {
   IconActivityHeartbeat,
   IconBed,
+  IconBookmark,
   IconBraces,
   IconBuildingHospital,
   IconChartBar,
@@ -58,8 +81,6 @@ import type {
 } from "../models/bi";
 import {
   createDefaultDashboardApplicationV3,
-  darkThemeTokensV3,
-  lightThemeTokensV3,
   type DashboardApplicationV3,
   type DashboardComponentV3,
   type EventBindingV3,
@@ -201,6 +222,7 @@ interface PointerAction {
   sourceOwner?: { tabId: string; itemId: string };
   grabOffsetX: number;
   grabOffsetY: number;
+  groupPositions?: Record<string, Position>;
 }
 
 const TEMPLATE_STORAGE_KEY = "medical-bi-designer-component-templates-v1";
@@ -365,6 +387,7 @@ const tabs: Array<{ id: PropertyTab; label: string }> = [
 const dashboardApplication = ref<DashboardApplicationV3>(
   createDefaultDashboardApplicationV3({ name: "医院运营概览" }),
 );
+const hospitalVisual = computed(() => (dashboardApplication.value.extensionRefs.localGeneration as { visualTemplate?: string } | undefined)?.visualTemplate === 'hospital-overview-blue-v2');
 const dashboardWorkspace = ref<DashboardWorkspaceV3>(
   createDashboardWorkspaceV3(dashboardApplication.value),
 );
@@ -379,7 +402,15 @@ const showMedicalComponents = ref(false);
 const medicalTemplates = ref<MedicalComponentTemplate[]>([]);
 const leftPanelWidth = ref(210);
 const rightPanelWidth = ref(330);
+const leftPanelCollapsed = ref(false), rightPanelCollapsed = ref(false);
+const batchSelectedIds = ref<string[]>([]);
+const showAlignmentGuides = ref(true);
+const alignmentGuides = ref<{ scope: string; x?: number; y?: number } | null>(null);
 const selectedId = ref("kpi_income");
+const compositionOpen = ref(false);
+const selectedComposition = computed(() => compositionMembersV3(components.value, selectedId.value));
+const selectedCompositionBounds = computed(() => selectedComposition.value.length > 1 ? compositionBoundsV3(selectedComposition.value) : null);
+const selectedCompositionScope = computed(() => compositionScopeV3(components.value, selectedId.value));
 const previewMode = ref(false);
 const saveState = ref("未保存");
 const canvasElement = ref<HTMLDivElement | null>(null);
@@ -389,6 +420,51 @@ const controlBarElement = ref<HTMLDivElement | null>(null);
 const importInput = ref<HTMLInputElement | null>(null);
 const datasetCatalogOpen = ref(false);
 const dashboardManagerOpen = ref(false);
+const localAssistantOpen = ref(false);
+const interactionTeachingOpen = ref(false);
+function addInteractionTeaching(application: DashboardApplicationV3) {
+  addLocalDraft(application);
+  if (dashboardApplication.value.id === application.id) {
+    interactionTeachingOpen.value = false;
+    setSaveState("教学看板已创建：点击预览开始，保存可留存");
+  }
+}
+const localEditorOpen = ref(false);
+const outpatientPromptOpen = ref(false);
+const localEditError = ref("");
+const lastLocalEdit = shallowRef<LocalEditPreview | null>(null);
+function applyLocalEdit(edit: LocalEditPreview) {
+  localEditError.value = "";
+  if (!guardEventDraft()) return;
+  try {
+    if (activePageId.value !== edit.pageId || selectedId.value !== edit.componentId) throw new Error("选中组件已变化，请重新预览");
+    assertLocalEditCurrent(currentApplicationSnapshot(), edit.before);
+    commitEventApplication(edit.after);
+    lastLocalEdit.value = edit;
+    localEditorOpen.value = false;
+    setSaveState("文字调整已应用，请保存");
+  } catch (reason) { localEditError.value = reason instanceof Error ? reason.message : "调整失败"; setSaveState(localEditError.value); }
+}
+function undoLocalEdit() {
+  if (!lastLocalEdit.value || !guardEventDraft()) return;
+  try {
+    const edit = lastLocalEdit.value;
+    if (activePageId.value !== edit.pageId) throw new Error("请回到调整所在页面再撤销");
+    assertLocalEditCurrent(currentApplicationSnapshot(), edit.after);
+    commitEventApplication(edit.before);
+    lastLocalEdit.value = null;
+    setSaveState("本次文字调整已撤销，请保存");
+  } catch (reason) { setSaveState(reason instanceof Error ? reason.message : "撤销失败"); }
+}
+function addLocalDraft(application: DashboardApplicationV3) {
+  if (!guardEventDraft()) return;
+  dashboardWorkspace.value = upsertDashboardApplicationInWorkspaceV3(dashboardWorkspace.value, currentApplicationSnapshot(), false);
+  dashboardWorkspace.value = upsertDashboardApplicationInWorkspaceV3(dashboardWorkspace.value, application, true);
+  applyDashboardApplication(application);
+  localAssistantOpen.value = false;
+  setSaveState("本地草稿已创建，请保存");
+  void loadServerMetadata();
+}
 const serverDatasets = ref<Record<string, CatalogDataset>>({});
 const runtimeDatasets = ref<Record<string, QueryResult>>({});
 const datasetLoading = ref<Record<string, boolean>>({});
@@ -442,6 +518,8 @@ const componentDatasetControllers = new Map<string, AbortController>();
 async function fetchServerDataset(
   request: ComponentQueryLoadRequestV3,
 ): Promise<Record<string, unknown>> {
+  const tablePagination = request.component.type === 'table' && request.component.tableConfig?.pagination?.enabled !== false && request.component.tableConfig?.pagination?.mode === 'server'
+    ? { offset: 0, limit: Math.min(200, Math.max(1, request.component.tableConfig.pagination.pageSize || 20)), includeTotal: true } : undefined;
   const response = await fetch(
     `/api/datasets/${encodeURIComponent(request.datasetId)}/execute`,
     {
@@ -450,22 +528,13 @@ async function fetchServerDataset(
       signal: request.signal,
       body: JSON.stringify({
         parameters: request.parameters,
-        limit: request.limit,
+        ...(!tablePagination ? { limit: request.limit } : {}),
         view: request.view,
+        ...(tablePagination ? { pagination: tablePagination } : {}),
       }),
     },
   );
-  const result = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
-  if (!response.ok)
-    throw new Error(
-      typeof result.error === "string"
-        ? result.error
-        : `请求失败（${response.status}）`,
-    );
-  return result;
+  return readQueryResponseV3(response, request.signal);
 }
 
 const componentQueryRuntime = createComponentQueryRefreshV3({
@@ -542,6 +611,11 @@ const selectedMedicalTemplate = computed(() =>
     : undefined,
 );
 const activePageId = computed(() => pageSession.value.activePageId);
+watch(activePageId, async () => {
+  if (!previewMode.value) return;
+  await nextTick();
+  artboardWrapElement.value?.scrollTo({ top: 0, left: 0 });
+});
 const pageListItems = computed(() =>
   dashboardApplication.value.pages.map(({ id, name, code, order, type }) => ({
     id,
@@ -573,7 +647,7 @@ const eventOwnerComponents = computed(() =>
   eventOwner.value
     ? (dashboardApplication.value.pages
         .find((page) => page.id === eventOwner.value!.pageId)
-        ?.components.map(({ id, title }) => ({ id, title })) ?? [])
+        ?.components ?? [])
     : [],
 );
 const activePageControls = computed(
@@ -594,9 +668,18 @@ const activeDrillBreadcrumbs = computed(
         pathId: drill.pathId,
         label: frame.label,
         value: frame.value,
+        displayValue: drillFrameDisplayValue(frame, drill.pathId),
       })),
     ) ?? [],
 );
+function drillFrameDisplayValue(frame: PageSessionSnapshotV3['drills'][number]['frames'][number], pathId: string) {
+  const application = dashboardApplication.value;
+  const parameter = application.parameters.find(p => p.id === frame.parameterId);
+  const level = application.drillPaths?.find(p => p.id === pathId)?.levels.find(l => l.id === frame.levelId);
+  const source = application.pages.flatMap(p => p.components).find(c => c.id === frame.sourceComponentId);
+  return resolveDrillDisplayValue({ value: frame.value, field: level?.field, options: parameter ? optionsForParameter(parameter) : [],
+    source: source ? { type: source.type, rows: rowsFor(source), columns: source.tableConfig?.columns ?? [], measureFields: source.dataConfig.measures.flatMap(m => [m.field, ...(m.alias ? [m.alias] : [])]) } : undefined });
+}
 const previewRuntime = useDesignerPreviewRuntimeV3({
   activePageId,
   applicationSnapshot: currentApplicationSnapshot,
@@ -649,10 +732,18 @@ const previewRuntime = useDesignerPreviewRuntimeV3({
         }
       },
       onInteractionState(snapshot) {
+        const previousDialogs = interactionState.value?.dialogs ?? [];
         const dialogClosed =
           (interactionState.value?.dialogs.length ?? 0) >
           snapshot.dialogs.length;
         interactionState.value = snapshot;
+        for (const entry of snapshot.dialogs.filter(entry => !previousDialogs.some(previous => previous.instanceId === entry.instanceId))) {
+          const page = dashboardApplication.value.pages.find(page => page.id === entry.pageId);
+          if (page) void Promise.allSettled(componentsForPageEnterV3(page.components).filter(component => sourceKindFor(component) === 'server').map(component => loadServerDataset(component)));
+        }
+        for (const entry of previousDialogs.filter(entry => !snapshot.dialogs.some(current => current.pageId === entry.pageId))) {
+          for (const component of dashboardApplication.value.pages.find(page => page.id === entry.pageId)?.components ?? []) componentDatasetControllers.get(component.id)?.abort();
+        }
         if (dialogClosed)
           void nextTick(() => {
             const opener = document.querySelector<HTMLElement>(
@@ -660,6 +751,7 @@ const previewRuntime = useDesignerPreviewRuntimeV3({
             );
             if (opener?.isConnected) opener.focus();
           });
+        if (dialogClosed && !snapshot.closed) void loadActivePageDatasets();
         if (
           !previewMode.value ||
           snapshot.closed ||
@@ -672,7 +764,6 @@ const previewRuntime = useDesignerPreviewRuntimeV3({
         );
         pageSession.value = transition.session;
         dashboard.value = transition.dashboard;
-        normalizeCanvas(false);
         selectedId.value = "";
         datasetCatalogOpen.value = false;
         void loadActivePageDatasets();
@@ -748,10 +839,11 @@ const selectedMeasureField = computed({
 const workspaceStyle = computed(() => ({
   gridTemplateColumns: previewMode.value
     ? "minmax(0, 1fr)"
-    : `${leftPanelWidth.value}px minmax(0, 1fr) ${rightPanelWidth.value}px`,
+    : `${leftPanelCollapsed.value ? 0 : leftPanelWidth.value}px minmax(0, 1fr) ${rightPanelCollapsed.value ? 0 : rightPanelWidth.value}px`,
 }));
 const previewScale = computed(() => {
   if (!previewMode.value) return 1;
+  if (mobileLayout.value) return 1;
   const mode = dashboardApplication.value.runtimePolicy.previewScaleMode;
   if (mode === "actual") return 1;
   const width = Math.max(1, previewViewport.value.width - 24);
@@ -762,7 +854,7 @@ const previewScale = computed(() => {
 });
 const artboardWidth = computed(() =>
   previewMode.value
-    ? Math.round(dashboard.value.canvas.width * previewScale.value)
+    ? mobileLayout.value?.width ?? Math.round(dashboard.value.canvas.width * previewScale.value)
     : Math.max(dashboard.value.canvas.width + 58, 658),
 );
 const artboardStyle = computed(() =>
@@ -770,7 +862,7 @@ const artboardStyle = computed(() =>
     ? {
         width: `${artboardWidth.value}px`,
         minWidth: `${artboardWidth.value}px`,
-        height: `${Math.round(dashboard.value.canvas.height * previewScale.value)}px`,
+        height: `${mobileLayout.value?.height ?? Math.round(dashboard.value.canvas.height * previewScale.value)}px`,
         minHeight: "0",
         padding: "0",
         border: "0",
@@ -784,8 +876,8 @@ const artboardStyle = computed(() =>
       },
 );
 const canvasBackground = computed(() => ({
-  width: `${dashboard.value.canvas.width}px`,
-  height: `${dashboard.value.canvas.height}px`,
+  width: `${mobileLayout.value?.width ?? dashboard.value.canvas.width}px`,
+  height: `${mobileLayout.value?.height ?? dashboard.value.canvas.height}px`,
   backgroundColor: dashboard.value.canvas.background,
   "--grid-size": `${dashboard.value.canvas.gridSize}px`,
   "--theme-panel": String(
@@ -803,6 +895,19 @@ const canvasBackground = computed(() => ({
   transform: previewMode.value ? `scale(${previewScale.value})` : undefined,
   transformOrigin: previewMode.value ? "top left" : undefined,
 }));
+
+const previewDevice = ref('desktop');
+const responsiveEnabled = computed(() => (dashboardApplication.value.extensionRefs.responsiveLayout as { enabled?: boolean } | undefined)?.enabled === true);
+const mobileLayout = computed(() => {
+  const available = Math.max(240, Math.min(1024, previewViewport.value.width - 24));
+  if (!previewMode.value || (previewDevice.value === 'desktop' && (!responsiveEnabled.value || available > 768))) return null;
+  const width = Math.min(available, previewDevice.value === 'phone' ? 390 : previewDevice.value === 'tablet' ? 768 : available);
+  return responsiveLayoutV3(components.value, width);
+});
+function setResponsiveEnabled(event: Event) {
+  dashboardApplication.value.extensionRefs.responsiveLayout = { enabled: (event.target as HTMLInputElement).checked, breakpoint: 768, mode: 'stack' };
+  markDirty();
+}
 
 const eventNameLabels: Record<string, string> = {
   click: "单击",
@@ -1409,6 +1514,7 @@ function addMedicalTemplate(template: MedicalComponentTemplate) {
     24 + offset,
     24 + offset,
   );
+  delete component.groupId;
   component.position.zIndex =
     Math.max(0, ...components.value.map((entry) => entry.position.zIndex)) + 1;
   components.value.push(component);
@@ -1501,6 +1607,17 @@ function handleTabDrop(event: DragEvent, tab: DashboardComponent) {
     );
 }
 
+function guidePosition(position: DashboardComponent['position'], disabled: boolean) {
+  const action = pointerAction;
+  if (!action || disabled || !showAlignmentGuides.value) { alignmentGuides.value = null; return position }
+  const scope = compositionScopeV3(components.value, action.id);
+  const excluded = new Set(action.groupPositions ? Object.keys(action.groupPositions) : [action.id]);
+  const peers = components.value.filter(item => !excluded.has(item.id) && compositionScopeV3(components.value, item.id) === scope).map(item => item.position);
+  const result = alignmentGuidesV3(position, peers, action.bounds);
+  alignmentGuides.value = { scope, x: result.x, y: result.y };
+  return result.position;
+}
+
 function startPointer(
   event: PointerEvent,
   component: DashboardComponent,
@@ -1511,14 +1628,15 @@ function startPointer(
   if (
     mode === "move" &&
     target.closest("button, input, select") &&
-    !target.closest(".widget-grip")
+    !target.closest(".widget-grip, .composition-grip")
   )
     return;
   event.preventDefault();
   selectedId.value = component.id;
-  const start = { ...component.position };
-  component.position.zIndex =
-    Math.max(...components.value.map((item) => item.position.zIndex), 1) + 1;
+  const members = compositionMembersV3(components.value, component.id);
+  const groupPositions = members.length > 1 ? Object.fromEntries(members.map(item => [item.id, { ...item.position }])) : undefined;
+  const start = groupPositions ? compositionBoundsV3(members) : { ...component.position };
+  if (!groupPositions) component.position.zIndex = Math.max(...components.value.map((item) => item.position.zIndex), 1) + 1;
   const owner = tabOwnerForComponent(component.id);
   const contentSize = owner
     ? tabContentSizeV3(owner.tab, owner.item)
@@ -1548,6 +1666,7 @@ function startPointer(
       : {}),
     grabOffsetX: event.clientX - rect.left,
     grabOffsetY: event.clientY - rect.top,
+    ...(groupPositions ? { groupPositions } : {}),
   };
   window.addEventListener("pointermove", handlePointerMove);
   window.addEventListener("pointerup", endPointer, { once: true });
@@ -1634,6 +1753,28 @@ function handlePointerMove(event: PointerEvent) {
   const start = pointerAction.start;
   const padding = pointerAction.bounds.padding;
 
+  if (pointerAction.groupPositions) {
+    const target = { ...start };
+    if (pointerAction.mode === "move") {
+      target.x = Math.round(clamp(start.x + dx, padding, pointerAction.bounds.width - padding - start.width));
+      target.y = Math.round(clamp(start.y + dy, padding, pointerAction.bounds.height - padding - start.height));
+    } else {
+      const direction = pointerAction.direction ?? "se";
+      const entries = Object.entries(pointerAction.groupPositions);
+      const minWidth = Math.max(...entries.map(([id, position]) => componentMinimumSizeV3(components.value.find(item => item.id === id)!).width / position.width * start.width));
+      const minHeight = Math.max(...entries.map(([id, position]) => componentMinimumSizeV3(components.value.find(item => item.id === id)!).height / position.height * start.height));
+      let right = start.x + start.width, bottom = start.y + start.height;
+      if (direction.includes("w")) target.x = clamp(start.x + dx, padding, right - minWidth);
+      if (direction.includes("e")) right = clamp(right + dx, target.x + minWidth, pointerAction.bounds.width - padding);
+      if (direction.includes("n")) target.y = clamp(start.y + dy, padding, bottom - minHeight);
+      if (direction.includes("s")) bottom = clamp(bottom + dy, target.y + minHeight, pointerAction.bounds.height - padding);
+      target.width = right - target.x; target.height = bottom - target.y;
+    }
+    const guided = pointerAction.mode === 'move' ? guidePosition(target, event.altKey) : target;
+    try { transformCompositionV3(components.value, pointerAction.groupPositions, guided, pointerAction.bounds) } catch { /* Keep the last valid group geometry. */ }
+    return;
+  }
+
   if (pointerAction.mode === "move") {
     updateTabHeaderHover(event, component);
     const target =
@@ -1657,6 +1798,7 @@ function handlePointerMove(event: PointerEvent) {
         pointerAction.bounds.height - padding - component.position.height,
       ),
     );
+    component.position = guidePosition(component.position, event.altKey);
     return;
   }
 
@@ -1691,6 +1833,10 @@ function handlePointerMove(event: PointerEvent) {
 }
 
 function restorePointerStart(action: PointerAction) {
+  if (action.groupPositions) {
+    for (const item of components.value) if (action.groupPositions[item.id]) item.position = { ...action.groupPositions[item.id]! };
+    return;
+  }
   const component = components.value.find(
     (candidate) => candidate.id === action.id,
   );
@@ -1698,6 +1844,7 @@ function restorePointerStart(action: PointerAction) {
 }
 
 function clearPointerState() {
+  alignmentGuides.value = null;
   pointerAction = null;
   tabDropTarget.value = null;
   clearTabHover();
@@ -1724,6 +1871,12 @@ function endPointer(event: PointerEvent) {
     (candidate) => candidate.id === action.id,
   );
   if (!component) return clearPointerState();
+
+  if (action.groupPositions) {
+    markDirty();
+    setSaveState("已调整整个组合；跨页签移动请先取消组合");
+    return clearPointerState();
+  }
 
   if (action.mode === "resize") {
     normalizeCanvas();
@@ -1914,28 +2067,29 @@ function normalizeComponent(component: DashboardComponent) {
     component.type === "tabs"
       ? minimumTabOuterSizeV3(component)
       : componentMinimumSizeV3(component);
-  component.position.width = Math.round(
+  const roundCoordinate = component.groupId ? (value: number) => Math.round(value * 10000) / 10000 : Math.round;
+  component.position.width = roundCoordinate(
     clamp(
       component.position.width,
       minimum.width,
       bounds.width - bounds.padding * 2,
     ),
   );
-  component.position.height = Math.round(
+  component.position.height = roundCoordinate(
     clamp(
       component.position.height,
       minimum.height,
       bounds.height - bounds.padding * 2,
     ),
   );
-  component.position.x = Math.round(
+  component.position.x = roundCoordinate(
     clamp(
       component.position.x,
       bounds.padding,
       bounds.width - bounds.padding - component.position.width,
     ),
   );
-  component.position.y = Math.round(
+  component.position.y = roundCoordinate(
     clamp(
       component.position.y,
       bounds.padding,
@@ -1992,6 +2146,7 @@ function deleteSelected() {
     (component) => component.id === selectedId.value,
   );
   components.value.splice(index, 1);
+  cleanCompositionsV3(components.value);
   if (deletingEventOwner) {
     eventPanel.value?.discardDraft();
     eventOwner.value = null;
@@ -2470,7 +2625,7 @@ async function commitControlAssignments(
       ...new Set([...commit.changedParameterIds, ...cascadedIds]),
     ];
     const affected = componentsAffectedByParameterCommitV3(
-      components.value,
+      [...new Map([...components.value, ...(interactionState.value?.dialogs.flatMap(entry => dashboardApplication.value.pages.find(page => page.id === entry.pageId)?.components ?? []) ?? [])].map(component => [component.id, component])).values()],
       allChangedIds,
     ).filter((component) => sourceKindFor(component) === "server");
     await Promise.all(
@@ -2486,7 +2641,7 @@ async function commitControlAssignments(
                 parameterRuntimeValues.value[assignment.parameterId] ?? null,
               ]),
             );
-      await previewRuntime.controlValueChange(sourceControl.id, value);
+      await previewRuntime.controlValueChange(sourceControl.id, value, interactionState.value?.dialogs.at(-1)?.pageId ?? activePageId.value);
     }
     setSaveState(`参数已提交，刷新 ${affected.length} 个组件`);
   } catch (reason) {
@@ -2603,7 +2758,8 @@ function clearControl(control: ParameterControlV3) {
 
 async function loadServerMetadata() {
   try {
-    const response = await fetch("/api/datasets");
+    const localIds = [...new Set(components.value.map(c => c.dataConfig.datasetId).filter(id => id.startsWith("local-series:") || id.startsWith("local-business:")))];
+    const response = await fetch(`/api/datasets?localIds=${encodeURIComponent(localIds.join(","))}`);
     const datasets: CatalogDataset[] = await response.json();
     if (!response.ok) throw new Error("数据集目录加载失败");
     serverDatasets.value = Object.fromEntries(
@@ -2750,16 +2906,7 @@ async function loadServerTablePage(
         }),
       },
     );
-    const payload = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    if (!response.ok)
-      throw new Error(
-        typeof payload.error === "string"
-          ? payload.error
-          : `分页请求失败（${response.status}）`,
-      );
+    const payload = await readQueryResponseV3(response, controller.signal);
     if (componentDatasetControllers.get(component.id) !== controller) return;
     runtimeDatasets.value = {
       ...runtimeDatasets.value,
@@ -2783,6 +2930,26 @@ function refreshSelectedDataset() {
   if (selected.value && sourceKindFor(selected.value) === "server") {
     void loadServerDataset(selected.value, true);
   }
+}
+
+const localRefreshBusy = ref(false), localSnapshotTime = ref(''), localRefreshVersion = ref(0);
+const localPageComponents = computed(() => components.value.filter(c => c.dataConfig.version === 3 && c.dataConfig.sourceKind === 'server' && /^(local-overview:|local-business:|local-series:)/.test(c.dataConfig.datasetId)));
+function tableQueryScope(component: DashboardComponent) { return tableQueryScopeV3(component, parameterRuntimeValues.value, localRefreshVersion.value); }
+async function refreshLocalPage() {
+  if(localRefreshBusy.value)return;
+  localRefreshBusy.value = true;
+  try {
+    if(localPageComponents.value.some(c => c.dataConfig.datasetId.startsWith('local-overview:'))) {
+      const response = await fetch('/api/knowledge/hospital-overview');
+      const metadata = await response.json();
+      if(!response.ok)throw new Error(metadata.error || '本地快照不可用');
+      localSnapshotTime.value = metadata.observedAt ? new Date(metadata.observedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '时间未提供';
+    }
+    queryRuntimeCache.clear(); localRefreshVersion.value++;
+    await Promise.all(localPageComponents.value.map(c => loadServerDataset(c, true, undefined, true)));
+    setSaveState(`已刷新 ${localPageComponents.value.length} 个本地组件`);
+  } catch(reason) { setSaveState(reason instanceof Error ? reason.message : '本地刷新失败'); }
+  finally { localRefreshBusy.value = false; }
 }
 
 function aggregationOptionsFor(
@@ -2974,9 +3141,9 @@ function dataViewFor(component: DashboardComponent) {
         ...measure,
         aggregation: "none",
       })),
-    });
+    }, component.type !== 'table');
   }
-  return buildComponentDataView(rowsFor(component), component.dataConfig);
+  return buildComponentDataView(rowsFor(component), component.dataConfig, component.type !== 'table');
 }
 
 function categoriesFor(component: DashboardComponent) {
@@ -3076,24 +3243,7 @@ function kpiProgress(component: DashboardComponent) {
 }
 
 function tableColumnsFor(component: DashboardComponent) {
-  const available = dataViewFor(component).columns;
-  const configured = component.tableConfig?.columns ?? [];
-  const configuredFields = new Set(configured.map((item) => item.field));
-  return [
-    ...configured.filter((item) =>
-      available.some((column) => column.field === item.field),
-    ),
-    ...available
-      .filter((column) => !configuredFields.has(column.field))
-      .map((column) => ({
-        field: column.field,
-        label: column.label,
-        width: 120,
-        format:
-          column.role === "measure" ? ("number" as const) : ("auto" as const),
-        summary: "none" as const,
-      })),
-  ];
+  return resolveInteractionTableColumns(component.dataConfig.datasetId, component.tableConfig?.columns ?? [], dataViewFor(component).columns);
 }
 
 function activeTabItemId(component: DashboardComponent) {
@@ -3324,13 +3474,17 @@ function isControlledContent(type: ComponentType) {
 }
 
 function componentStyle(component: DashboardComponent) {
-  const { x, y, width, height, zIndex } = component.position;
+  const { x, y, width, height, zIndex } = mobileLayout.value?.positions[component.id] ?? component.position;
   const tokens = dashboardApplication.value.theme.tokens;
+  const scale = mobileLayout.value?.scales[component.id] ?? 1;
   return {
     left: `${x}px`,
     top: `${y}px`,
-    width: `${width}px`,
-    height: `${height}px`,
+    width: `${width / scale}px`,
+    height: `${height / scale}px`,
+    transform: scale !== 1 ? `scale(${scale})` : undefined,
+    transformOrigin: scale !== 1 ? "top left" : undefined,
+    pointerEvents: previewMode.value && component.styleConfig.pointerEvents === 'none' ? 'none' as const : undefined,
     zIndex,
     background: safeStyleTokenV3(
       component.styleConfig.background,
@@ -3352,32 +3506,9 @@ function componentStyle(component: DashboardComponent) {
 }
 
 function applyThemePreset(preset: "light" | "dark") {
-  dashboardApplication.value.theme = {
-    id: preset === "dark" ? "medical-dark" : "medical-light",
-    tokens: { ...(preset === "dark" ? darkThemeTokensV3 : lightThemeTokensV3) },
-  };
-  dashboard.value.canvas.background = String(
-    dashboardApplication.value.theme.tokens.canvasBackground,
-  );
-  dashboard.value.titleStyle.color = String(
-    dashboardApplication.value.theme.tokens.textPrimary,
-  );
-  for (const component of components.value) {
-    component.styleConfig.background = String(
-      dashboardApplication.value.theme.tokens.panelBackground,
-    );
-    component.styleConfig.titleColor = String(
-      dashboardApplication.value.theme.tokens.textPrimary,
-    );
-    component.styleConfig.borderColor = String(
-      dashboardApplication.value.theme.tokens.panelBorder,
-    );
-    component.styleConfig.borderRadius =
-      Number(dashboardApplication.value.theme.tokens.panelRadius) || 7;
-    component.styleConfig.shadow = String(
-      dashboardApplication.value.theme.tokens.panelShadow || "",
-    );
-  }
+  const next = currentApplicationSnapshot();
+  applyDashboardThemeV3(next, preset);
+  commitEventApplication(next);
   markDirty();
 }
 
@@ -3479,6 +3610,8 @@ function cleanupDesignerRuntimeState() {
 }
 
 function applyDashboardApplication(application: DashboardApplicationV3) {
+  lastLocalEdit.value = null;
+  localEditorOpen.value = false;
   cleanupDesignerRuntimeState();
   previewMode.value = false;
   initializeParameterRuntime(application);
@@ -3518,7 +3651,7 @@ function switchDesignerPage(pageId: string) {
     dashboardApplication.value = transition.application;
     pageSession.value = transition.session;
     dashboard.value = transition.dashboard;
-    normalizeCanvas();
+    if (!resumePreview) normalizeCanvas();
     selectedId.value = "";
     datasetCatalogOpen.value = false;
     setSaveState("已切换页面，当前草稿待保存");
@@ -4033,7 +4166,6 @@ function handlePreviewPageBack() {
   );
   pageSession.value = transition.session;
   dashboard.value = transition.dashboard;
-  normalizeCanvas(false);
   selectedId.value = "";
   datasetCatalogOpen.value = false;
   void loadActivePageDatasets();
@@ -4177,14 +4309,85 @@ function handleDialogComponentRowClick(
   componentId: string,
   row: JsonObjectV3,
 ) {
-  void previewRuntime.componentRowClick(componentId, row, pageId);
+  const component = dashboardApplication.value.pages.find(page => page.id === pageId)?.components.find(component => component.id === componentId);
+  if (component?.events?.some(event => event.enabled && event.event === 'rowClick')) void previewRuntime.componentRowClick(componentId, row, pageId);
+  else void previewRuntime.componentClick(componentId, row, pageId);
+}
+
+function handleDialogChartAction(pageId: string, component: DashboardComponent, payload: ChartEventPayloadV3, double = false) {
+  const datum = chartDatum(component, payload);
+  if (double) void previewRuntime.componentDoubleClick(component.id, datum, pageId);
+  else void previewRuntime.componentClick(component.id, datum, pageId);
+}
+
+const hospitalSampleBusy = ref(false);
+const hospitalSampleError = ref("");
+async function openHospitalSample() {
+  if (hospitalSampleBusy.value || !guardEventDraft()) return;
+  hospitalSampleBusy.value = true;
+  hospitalSampleError.value = "";
+  try {
+    const existing = dashboardWorkspace.value.dashboards.find(application => {
+      const generation = application.extensionRefs.localGeneration as { visualTemplate?: string; outpatientSample?: boolean } | undefined;
+      return generation?.visualTemplate === "hospital-overview-blue-v2" && !generation.outpatientSample;
+    });
+    if (existing) { switchDesignerDashboard(existing.id); return; }
+    const dataResponse = await fetch("/api/knowledge/hospital-overview");
+    const data = await dataResponse.json();
+    if (!dataResponse.ok) throw new Error(data.error || "医院概览数据暂不可用");
+    addLocalDraft(createHospitalOverviewDraft(createHospitalSamplePlan(data.months), data.months, hospitalSamplePlanId, 'local-template'));
+    saveDashboard();
+    dashboardManagerOpen.value = false;
+  } catch (reason) {
+    hospitalSampleError.value = reason instanceof Error ? reason.message : "打开医院概览失败";
+  } finally {
+    hospitalSampleBusy.value = false;
+  }
+}
+
+async function openDashboardSample(kind: "hospital" | "interaction" | "outpatient") {
+  if (kind === "hospital") return openHospitalSample();
+  if (hospitalSampleBusy.value || !guardEventDraft()) return;
+  hospitalSampleBusy.value = true;
+  hospitalSampleError.value = "";
+  try {
+    const existing = dashboardWorkspace.value.dashboards.find(application => {
+      const generation = application.extensionRefs.localGeneration as { businessSample?: boolean; outpatientSample?: boolean } | undefined;
+      return kind === "outpatient" ? generation?.outpatientSample === true : generation?.businessSample === true;
+    });
+    if (existing) { switchDesignerDashboard(existing.id); return; }
+    const response = await fetch("/api/datasets/local-business:departments");
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "本地业务样本暂不可用");
+    const rowsResponse = await fetch("/api/datasets/local-business:departments/execute", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parameters: { month: body.businessSample.month }, limit: 200 }),
+    });
+    const rowsBody = await rowsResponse.json();
+    if (!rowsResponse.ok) throw new Error(rowsBody.error || "科室选项暂不可用");
+    if (kind === "outpatient") {
+      const overviewResponse = await fetch('/api/knowledge/hospital-overview');
+      const overviewBody = await overviewResponse.json();
+      if (!overviewResponse.ok) throw new Error(overviewBody.error || '院级快照不可用');
+      addLocalDraft(createOutpatientOperationsDraft(createHospitalSamplePlan(overviewBody.months), overviewBody.months, hospitalSamplePlanId, { ...body.businessSample, departments: rowsBody.rows }, 'local-template'));
+    } else addLocalDraft(createBusinessInteractionDraft({ ...body.businessSample, departments: rowsBody.rows }));
+    saveDashboard();
+    dashboardManagerOpen.value = false;
+  } catch (reason) {
+    hospitalSampleError.value = reason instanceof Error ? reason.message : "创建演示看板失败";
+  } finally {
+    hospitalSampleBusy.value = false;
+  }
 }
 
 function setSaveState(message: string) {
   saveState.value = message;
   if (stateTimer) window.clearTimeout(stateTimer);
   stateTimer = window.setTimeout(() => {
-    if (saveState.value !== "有未保存修改") saveState.value = "当前草稿";
+    if (saveState.value === "有未保存修改" || saveState.value.includes("失败")) return;
+    if (saveState.value.includes("待保存") || saveState.value.includes("请保存")) saveState.value = "有未保存修改";
+    else if (saveState.value.includes("已保存") || saveState.value.startsWith("已恢复") || saveState.value.startsWith("已切换") || saveState.value.startsWith("已新建")) saveState.value = "已保存";
+    else saveState.value = "当前草稿";
   }, 2600);
 }
 
@@ -4271,7 +4474,8 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="designer-shell step4-shell"
-    :class="{ 'is-preview': previewMode }"
+    :class="{ 'is-preview': previewMode, 'hospital-overview-shell': hospitalVisual }"
+    :data-theme="dashboardApplication.theme.id"
   >
     <header class="designer-toolbar">
       <div class="brand-block">
@@ -4293,6 +4497,15 @@ onBeforeUnmount(() => {
         ><em>{{ saveState }}</em>
       </div>
       <div class="toolbar-actions">
+        <button type="button" :aria-pressed="leftPanelCollapsed" @click="leftPanelCollapsed = !leftPanelCollapsed">{{ leftPanelCollapsed ? '展开组件库' : '折叠组件库' }}</button>
+        <button type="button" :aria-pressed="rightPanelCollapsed" @click="rightPanelCollapsed = !rightPanelCollapsed">{{ rightPanelCollapsed ? '展开配置区' : '折叠配置区' }}</button>
+        <RouterLink to="/model-settings">模型 API</RouterLink>
+        <button type="button" :disabled="previewMode" @click="localAssistantOpen = true">本地看板助手</button>
+        <button type="button" :disabled="previewMode" @click="interactionTeachingOpen = true">交互教学</button>
+        <button type="button" :disabled="previewMode" @click="localEditError = ''; localEditorOpen = true">批量调整 / 文字调整</button>
+        <button type="button" :disabled="previewMode" @click="compositionOpen = true">图层 / 组合</button>
+        <button type="button" :disabled="previewMode" @click="outpatientPromptOpen = true">提示词样例</button>
+        <button v-if="lastLocalEdit" type="button" :disabled="previewMode" @click="undoLocalEdit">撤销文字调整</button>
         <input
           ref="importInput"
           class="visually-hidden"
@@ -4309,11 +4522,12 @@ onBeforeUnmount(() => {
         <button type="button" @click="exportDashboard">
           <IconFileExport :size="17" />导出
         </button>
-        <button type="button" @click="togglePreview">
+        <button class="preview-toggle" type="button" @click="togglePreview">
           <component :is="previewMode ? IconEyeOff : IconEye" :size="17" />{{
             previewMode ? "退出预览" : "预览"
           }}
         </button>
+        <button v-if="localPageComponents.length" class="local-refresh-action" type="button" :disabled="localRefreshBusy" @click="refreshLocalPage">{{ localRefreshBusy ? '刷新中…' : '刷新本地展示' }}</button>
         <button class="primary-action" type="button" @click="saveDashboard">
           <IconDeviceFloppy :size="17" />保存
         </button>
@@ -4328,7 +4542,7 @@ onBeforeUnmount(() => {
       {{ previewStatus.message }}
     </p>
     <div
-      v-if="previewMode && previewStatus.state !== 'idle'"
+      v-if="previewMode"
       class="runtime-event-status"
       :class="`is-${previewStatus.state}`"
       :role="
@@ -4337,11 +4551,11 @@ onBeforeUnmount(() => {
           : 'status'
       "
     >
-      {{ previewStatus.message }}
+      <span :title="previewStatus.message">{{ previewStatus.message }}</span>
     </div>
 
     <main class="designer-workspace" :style="workspaceStyle">
-      <aside class="component-panel" aria-label="组件库">
+      <aside class="component-panel" :class="{ 'is-panel-collapsed': leftPanelCollapsed }" :inert="leftPanelCollapsed" :aria-hidden="leftPanelCollapsed" aria-label="组件库">
         <i
           class="panel-width-handle panel-width-handle-right"
           aria-label="拖拽调整组件库宽度"
@@ -4438,7 +4652,10 @@ onBeforeUnmount(() => {
                 ><IconTable :size="14" />数据集</RouterLink
               ><RouterLink to="/parameters"
                 ><IconBraces :size="14" />参数中心</RouterLink
+              ><RouterLink to="/knowledge"
+                ><IconBookmark :size="14" />知识库</RouterLink
               >
+              <RouterLink to="/model-settings">模型配置</RouterLink>
             </div>
             <template v-if="selected && selected.type !== 'tabs'"
               ><button
@@ -4526,13 +4743,13 @@ onBeforeUnmount(() => {
       <section class="canvas-stage" aria-label="看板画布">
         <div class="canvas-session-bars">
           <nav
-            v-if="previewMode && interactionState"
+            v-if="previewMode"
             class="phase10-runtime-nav"
             aria-label="预览交互导航"
           >
             <button
               type="button"
-              :disabled="interactionState.stack.length <= 1"
+              :disabled="!interactionState || interactionState.stack.length <= 1"
               @click="handlePreviewPageBack"
             >
               返回
@@ -4547,16 +4764,17 @@ onBeforeUnmount(() => {
                   title="返回上一下钻层级"
                   @click="previewRuntime.drillBack(item.pathId)"
                 >
-                  <span>{{ item.label }}</span
-                  ><b>{{ String(item.value) }}</b>
+                  <span>{{ item.label }}：</span
+                  ><b>{{ item.displayValue }}</b>
                 </button>
               </li>
             </ol>
-            <button type="button" @click="clearPreviewInteractions">
+            <button type="button" :disabled="!interactionState" @click="clearPreviewInteractions">
               清除联动
             </button>
           </nav>
           <PageManagerPanel
+            :read-only="previewMode"
             :pages="pageListItems"
             :active-page-id="activePageId"
             :default-page-id="dashboardApplication.defaultPageId"
@@ -4574,140 +4792,21 @@ onBeforeUnmount(() => {
             class="parameter-control-runtime"
             aria-label="运行时筛选条件"
           >
-            <section
-              v-for="control in activePageControls"
-              :key="control.id"
-              class="runtime-control-card"
-            >
-              <p
-                v-for="parameterId in control.parameterIds"
-                v-show="
-                  parameterFor(parameterId)?.source.kind === 'dataset' &&
-                  parameterOptionState(parameterId).status !== 'ready'
-                "
-                :key="`option-state-${parameterId}`"
-                class="runtime-option-state"
-                :class="`is-${parameterOptionState(parameterId).status}`"
-              >
-                {{
-                  parameterOptionState(parameterId).status === "loading"
-                    ? "正在加载动态选项…"
-                    : parameterOptionState(parameterId).status === "empty"
-                      ? "当前条件下无可用选项"
-                      : parameterOptionState(parameterId).status === "error"
-                        ? parameterOptionState(parameterId).message
-                        : ""
-                }}
-              </p>
-              <template
-                v-for="parameterId in control.parameterIds"
-                :key="parameterId"
-              >
-                <label
-                  v-if="parameterFor(parameterId)"
-                  class="runtime-control-field"
-                >
-                  <span>{{ parameterFor(parameterId)!.name }}</span>
-                  <div
-                    v-if="control.type === 'buttonGroup'"
-                    class="runtime-button-group"
-                  >
-                    <button
-                      v-for="option in optionsForParameter(
-                        parameterFor(parameterId)!,
-                      )"
-                      :key="String(option.value)"
-                      type="button"
-                      :class="{
-                        active: controlValue(parameterId) === option.value,
-                      }"
-                      @click="
-                        setControlValue(control, parameterId, option.value)
-                      "
-                    >
-                      {{ option.label }}
-                    </button>
-                  </div>
-                  <select
-                    v-else-if="control.type === 'singleSelect'"
-                    :value="scalarControlValue(parameterId)"
-                    @change="updateControlValue(control, parameterId, $event)"
-                  >
-                    <option value="">请选择</option>
-                    <option
-                      v-for="option in optionsForParameter(
-                        parameterFor(parameterId)!,
-                      )"
-                      :key="String(option.value)"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                  <select
-                    v-else-if="control.type === 'multiSelect'"
-                    multiple
-                    :value="controlValue(parameterId)"
-                    @change="updateControlValue(control, parameterId, $event)"
-                  >
-                    <option
-                      v-for="option in optionsForParameter(
-                        parameterFor(parameterId)!,
-                      )"
-                      :key="String(option.value)"
-                      :value="option.value"
-                    >
-                      {{ option.label }}
-                    </option>
-                  </select>
-                  <span
-                    v-else-if="control.type === 'dateRange'"
-                    class="runtime-date-range"
-                    ><input
-                      type="date"
-                      :value="dateRangeControlValue(parameterId, 0)"
-                      @change="
-                        updateDateRangeControl(control, parameterId, 0, $event)
-                      " /><i>至</i
-                    ><input
-                      type="date"
-                      :value="dateRangeControlValue(parameterId, 1)"
-                      @change="
-                        updateDateRangeControl(control, parameterId, 1, $event)
-                      "
-                  /></span>
-                  <input
-                    v-else
-                    :type="
-                      control.type === 'date'
-                        ? 'date'
-                        : parameterFor(parameterId)!.type === 'number'
-                          ? 'number'
-                          : 'text'
-                    "
-                    :value="scalarControlValue(parameterId)"
-                    @change="updateControlValue(control, parameterId, $event)"
-                  />
-                </label>
-              </template>
-              <div class="runtime-control-actions">
-                <button
-                  v-if="control.interaction.submitMode === 'manual'"
-                  type="button"
-                  @click="submitControl(control)"
-                >
-                  应用
-                </button>
-              </div>
-            </section>
+            <RuntimeParameterControlsV3 :controls="activePageControls" :parameter-for="parameterFor" :parameter-option-state="parameterOptionState" :options-for-parameter="optionsForParameter" :control-value="controlValue" :scalar-control-value="scalarControlValue" :date-range-control-value="dateRangeControlValue" :update-control-value="updateControlValue" :update-date-range-control="updateDateRangeControl" :set-control-value="setControlValue" :clear-control="clearControl" :submit-control="submitControl" />
           </div>
         </div>
         <div class="canvas-meta">
+          <p v-if="!previewMode" class="mobile-design-notice">手机查看请进入预览；布局与交互配置建议在电脑编辑。</p>
           <div>
             <IconLayoutDashboard :size="16" />{{ dashboard.name }} <span>/</span
             ><b>{{ previewMode ? "预览模式" : "设计模式" }}</b>
           </div>
           <div class="canvas-meta-actions">
+            <template v-if="!previewMode"><label title="拖动时显示边缘和中心参考线；按 Alt 暂停吸附"><input v-model="showAlignmentGuides" type="checkbox" />对齐参考线</label><button type="button" @click="applyThemePreset('dark')">深色驾驶舱</button><button type="button" @click="applyThemePreset('light')">浅色日常分析</button></template>
+            <label><input type="checkbox" aria-label="移动端自适应" :checked="responsiveEnabled" @change="setResponsiveEnabled" />移动端自适应</label>
+            <small v-if="localSnapshotTime">院级快照采集：{{ localSnapshotTime }}</small>
+            <label v-if="previewMode">设备<select v-model="previewDevice" aria-label="预览设备"><option value="desktop">桌面 / 自动</option><option value="phone">手机 · 390</option><option value="tablet">平板 · 768</option></select></label>
+            <label v-if="previewMode && previewDevice === 'desktop'">缩放<select v-model="dashboardApplication.runtimePolicy.previewScaleMode" aria-label="预览缩放" @change="markDirty"><option value="width">按宽度适配</option><option value="fit">完整画布</option><option value="actual">原始尺寸</option></select></label>
             <button type="button" @click="selectCanvas">
               <IconSettings :size="14" />画布设置</button
             ><button type="button" @click="activeTab = 'advanced'">
@@ -4719,12 +4818,13 @@ onBeforeUnmount(() => {
           ref="artboardWrapElement"
           class="artboard-wrap"
           :style="{
+            justifyContent: previewMode && artboardWidth > previewViewport.width - 24 ? 'flex-start' : undefined,
             overflowX:
               previewMode && dashboardApplication.runtimePolicy.previewScaleMode !== 'actual'
                 ? 'hidden'
                 : 'auto',
             overflowY:
-              previewMode && !dashboardApplication.runtimePolicy.allowScroll
+              previewMode && !mobileLayout && !dashboardApplication.runtimePolicy.allowScroll
                 ? 'hidden'
                 : 'auto',
           }"
@@ -4755,7 +4855,7 @@ onBeforeUnmount(() => {
             <div
               ref="canvasElement"
               class="interactive-canvas"
-              :class="{ 'grid-hidden': !dashboard.canvas.showGrid }"
+              :class="{ 'grid-hidden': !dashboard.canvas.showGrid, 'mobile-preview': !!mobileLayout }"
               :style="canvasBackground"
               @dragover.prevent
               @drop.prevent="handleDrop"
@@ -4767,6 +4867,7 @@ onBeforeUnmount(() => {
                 class="design-component"
                 :class="{
                   'is-selected': component.id === selectedId && !previewMode,
+                  'is-batch-selected': batchSelectedIds.includes(component.id) && !previewMode,
                   'is-text-component': component.type === 'text',
                 }"
                 :data-component-id="component.id"
@@ -4810,7 +4911,7 @@ onBeforeUnmount(() => {
                   ><IconDots v-if="!previewMode" :size="17" />
                 </div>
                 <div class="design-component-body">
-                  <div v-if="isDatasetLoading(component)" class="runtime-state">
+                  <div v-if="isDatasetLoading(component) && !(component.type === 'table' && runtimeDatasets[component.id]?.rows?.length)" class="runtime-state">
                     <i></i><span>正在读取数据集</span>
                   </div>
                   <div
@@ -4824,10 +4925,12 @@ onBeforeUnmount(() => {
                   <template v-else>
                     <DataChart
                       v-if="isChart(component.type) && component.analysisConfig"
+                      :theme-tokens="dashboardApplication.theme.tokens"
                       :kind="chartKind(component.type)"
                       :categories="categoriesFor(component)"
                       :series="dataViewFor(component).series"
                       :analysis="component.analysisConfig"
+                      :visual-style="hospitalVisual ? 'hospital' : undefined"
                       @action="handleChartAction(component, $event, 'click')"
                       @double-action="
                         handleChartAction(component, $event, 'doubleClick')
@@ -4889,6 +4992,7 @@ onBeforeUnmount(() => {
                           :key="child.id"
                           class="tab-child-component"
                           :class="{
+                            'is-batch-selected': batchSelectedIds.includes(child.id) && !previewMode,
                             'is-selected':
                               child.id === selectedId && !previewMode,
                             'is-text-component': child.type === 'text',
@@ -4939,7 +5043,7 @@ onBeforeUnmount(() => {
                           </div>
                           <div class="design-component-body">
                             <div
-                              v-if="isDatasetLoading(child)"
+                              v-if="isDatasetLoading(child) && !(child.type === 'table' && runtimeDatasets[child.id]?.rows?.length)"
                               class="runtime-state"
                             >
                               <i></i><span>正在读取数据集</span>
@@ -4954,6 +5058,7 @@ onBeforeUnmount(() => {
                             </div>
                             <template v-else
                               ><DataChart
+                                :theme-tokens="dashboardApplication.theme.tokens"
                                 v-if="
                                   isChart(child.type) && child.analysisConfig
                                 "
@@ -4966,6 +5071,8 @@ onBeforeUnmount(() => {
                               /><TableRendererV3
                                 v-else-if="child.type === 'table'"
                                 :component="child"
+                                :query-scope="tableQueryScope(child)"
+                                :busy="isDatasetLoading(child)"
                                 :rows="dataViewFor(child).rows"
                                 :columns="tableColumnsFor(child)"
                                 :server-total="
@@ -5017,7 +5124,7 @@ onBeforeUnmount(() => {
                           </button>
                           <i
                             v-for="direction in resizeDirections"
-                            v-if="child.id === selectedId && !previewMode"
+                            v-if="child.id === selectedId && !previewMode && !child.groupId"
                             :key="direction"
                             class="resize-handle resize-handle-all"
                             :class="`handle-${direction}`"
@@ -5033,11 +5140,15 @@ onBeforeUnmount(() => {
                           <b>将组件拖入当前标签页</b
                           ><span>支持从组件库或画布直接拖入</span>
                         </div>
+                        <CompositionOutline v-if="!previewMode && selectedCompositionBounds && selectedCompositionScope === `${component.id}/${activeTabItemId(component)}`" :bounds="selectedCompositionBounds" :count="selectedComposition.length" @start="(event, mode, direction) => selected && startPointer(event, selected, mode, direction)" />
+                        <template v-if="!previewMode && alignmentGuides?.scope === `${component.id}/${activeTabItemId(component)}`"><i v-if="alignmentGuides.x !== undefined" class="alignment-guide is-vertical" :style="{ left: `${alignmentGuides.x}px` }" /><i v-if="alignmentGuides.y !== undefined" class="alignment-guide is-horizontal" :style="{ top: `${alignmentGuides.y}px` }" /></template>
                       </div>
                     </section>
                     <TableRendererV3
                       v-else-if="component.type === 'table'"
                       :component="component"
+                      :query-scope="tableQueryScope(component)"
+                      :busy="isDatasetLoading(component)"
                       :rows="dataViewFor(component).rows"
                       :columns="tableColumnsFor(component)"
                       :server-total="
@@ -5105,7 +5216,7 @@ onBeforeUnmount(() => {
                       <p v-else class="kpi-trend">
                         <IconTrendingUp :size="15" />{{
                           sourceKindFor(component) === "server"
-                            ? "数据库数据集实时计算"
+                            ? component.dataConfig.datasetId.startsWith('local-overview:') ? "本地快照 · 预算暂无" : "数据库数据集实时计算"
                             : "Mock 数据实时计算"
                         }}
                       </p>
@@ -5143,7 +5254,7 @@ onBeforeUnmount(() => {
                 </button>
                 <i
                   v-for="direction in resizeDirections"
-                  v-if="component.id === selectedId && !previewMode"
+                  v-if="component.id === selectedId && !previewMode && !component.groupId"
                   :key="direction"
                   class="resize-handle resize-handle-all"
                   :class="`handle-${direction}`"
@@ -5154,6 +5265,8 @@ onBeforeUnmount(() => {
                   "
                 ></i>
               </article>
+              <CompositionOutline v-if="!previewMode && selectedCompositionBounds && selectedCompositionScope === 'canvas'" :bounds="selectedCompositionBounds" :count="selectedComposition.length" @start="(event, mode, direction) => selected && startPointer(event, selected, mode, direction)" />
+              <template v-if="!previewMode && alignmentGuides?.scope === 'canvas'"><i v-if="alignmentGuides.x !== undefined" class="alignment-guide is-vertical" :style="{ left: `${alignmentGuides.x}px` }" /><i v-if="alignmentGuides.y !== undefined" class="alignment-guide is-horizontal" :style="{ top: `${alignmentGuides.y}px` }" /></template>
               <div v-if="!rootComponents.length" class="canvas-empty">
                 <IconPlus :size="28" /><b>画布为空</b
                 ><span>从左侧添加组件</span>
@@ -5163,7 +5276,7 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <aside class="property-panel" aria-label="属性配置">
+      <aside class="property-panel" :class="{ 'is-panel-collapsed': rightPanelCollapsed }" :inert="rightPanelCollapsed" :aria-hidden="rightPanelCollapsed" aria-label="属性配置">
         <i
           class="panel-width-handle panel-width-handle-left"
           aria-label="拖拽调整配置区宽度"
@@ -6823,17 +6936,26 @@ onBeforeUnmount(() => {
       @choose="chooseServerDataset"
       @close="datasetCatalogOpen = false"
     />
+    <LocalDashboardAssistant v-if="localAssistantOpen" v-floating-panel @close="localAssistantOpen = false" @create="addLocalDraft" />
+    <OutpatientPromptAssistant v-if="outpatientPromptOpen" v-floating-panel @close="outpatientPromptOpen = false" @create="addLocalDraft" />
+    <InteractionTeachingAssistant v-if="interactionTeachingOpen" v-floating-panel @close="interactionTeachingOpen = false" @create="addInteractionTeaching" />
+    <LocalDashboardEditor v-if="localEditorOpen" v-floating-panel :snapshot="currentApplicationSnapshot" :page-id="activePageId" :component-id="selectedId" :apply-error="localEditError" @highlight="batchSelectedIds = $event" @close="localEditorOpen = false" @apply="applyLocalEdit" />
+    <ComponentCompositionPanel v-if="compositionOpen && !previewMode" v-floating-panel :components="components" :selected-id="selectedId" :canvas="dashboard.canvas" @highlight="batchSelectedIds = $event" @select="selectedId = $event" @dirty="markDirty" @close="compositionOpen = false" />
     <DashboardManagerPanel
       :open="dashboardManagerOpen"
       :active-dashboard-id="dashboardWorkspace.activeDashboardId"
       :dashboards="dashboardListItems"
       :create-dashboard="createDesignerDashboard"
       :delete-dashboard="deleteDesignerDashboard"
+      :sample-busy="hospitalSampleBusy"
+      :sample-error="hospitalSampleError"
+      @sample="openDashboardSample"
       @select="switchDesignerDashboard"
       @close="dashboardManagerOpen = false"
     />
     <EventConfigPanel
       v-if="eventOwner"
+      v-floating-panel
       ref="eventPanel"
       :owner="eventOwner"
       :events="eventOwnerEvents"
@@ -6858,7 +6980,27 @@ onBeforeUnmount(() => {
       @resize="previewRuntime.resizeDialog"
       @component-click="handleDialogComponentClick"
       @component-row-click="handleDialogComponentRowClick"
-    />
+    >
+      <template #page="{ page, entry, contentWidth }">
+        <div v-if="page?.controls.length" class="parameter-control-runtime" aria-label="弹窗筛选条件">
+          <RuntimeParameterControlsV3 :controls="page.controls" :parameter-for="parameterFor" :parameter-option-state="parameterOptionState" :options-for-parameter="optionsForParameter" :control-value="controlValue" :scalar-control-value="scalarControlValue" :date-range-control-value="dateRangeControlValue" :update-control-value="updateControlValue" :update-date-range-control="updateDateRangeControl" :set-control-value="setControlValue" :clear-control="clearControl" :submit-control="submitControl" />
+        </div>
+        <RuntimePageSurfaceV3 v-if="page" :key="entry.instanceId" :components="page.components" :width="contentWidth" @click="handleDialogComponentClick(page.id, $event.id, dialogComponentRows($event.id)[0] ?? {})" @double-click="previewRuntime.componentDoubleClick($event.id, dialogComponentRows($event.id)[0] ?? {}, page.id)" @tab="(component, item) => handleDialogComponentClick(page.id, component.id, { tabValue: item.value, tabId: item.id })">
+          <template #component="{ component }">
+            <div v-if="isDatasetLoading(component)" class="runtime-state">正在读取数据集</div>
+            <div v-else-if="datasetErrorFor(component)" class="runtime-state error">{{ datasetErrorFor(component) }}</div>
+            <DataChart v-else-if="isChart(component.type) && component.analysisConfig" :theme-tokens="dashboardApplication.theme.tokens" :kind="chartKind(component.type)" :categories="categoriesFor(component)" :series="dataViewFor(component).series" :analysis="component.analysisConfig" @action="handleDialogChartAction(page.id, component, $event)" @double-action="handleDialogChartAction(page.id, component, $event, true)" />
+            <TableRendererV3 v-else-if="component.type === 'table'" :component="component" :query-scope="tableQueryScope(component)" :busy="isDatasetLoading(component)" :rows="dataViewFor(component).rows" :columns="tableColumnsFor(component)" :server-total="runtimeDatasets[component.id]?.pagination?.total" @row-click="handleDialogComponentRowClick(page.id, component.id, safeParameterRuntimeValuesV3($event))" @page-change="loadServerTablePage(component, $event, component.tableConfig?.pagination?.pageSize ?? 20)" />
+            <ControlledContentRenderer v-else-if="isControlledContent(component.type)" :component="component" :rows="dataViewFor(component).rows" :interactive="true" @action="handleDialogComponentClick(page.id, component.id, $event)" />
+            <template v-else-if="component.kpiConfig">
+              <strong class="kpi-value">{{ formattedMetric(component) }}<small>{{ metricUnit(component) }}</small></strong>
+              <div class="kpi-comparisons"><p v-for="kind in (['yoy', 'mom'] as const)" v-show="kpiComparison(component, kind) !== null" :key="kind" class="kpi-trend" :style="{ color: kpiComparisonColor(component, kpiComparison(component, kind) ?? 0) }">{{ kind === 'yoy' ? '同比' : '环比' }} {{ (kpiComparison(component, kind) ?? 0).toFixed(1) }}%</p></div>
+              <p v-if="component.kpiConfig.yoyField && kpiComparison(component, 'yoy') === null" class="kpi-trend">去年同期数据缺失</p>
+            </template>
+          </template>
+        </RuntimePageSurfaceV3>
+      </template>
+    </DialogHostV3>
   </div>
 </template>
 
@@ -6869,6 +7011,8 @@ onBeforeUnmount(() => {
 <style src="../styles/designer-v2-fields.css"></style>
 <style src="../styles/designer-phase8-binding.css"></style>
 <style src="../styles/designer-phase8-controls.css"></style>
+<style src="../styles/hospital-overview.css"></style>
+<style src="../styles/designer-refresh-20261009.css"></style>
 <style scoped>
 .phase10-runtime-nav {
   display: flex;

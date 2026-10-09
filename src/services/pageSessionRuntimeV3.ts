@@ -426,7 +426,11 @@ export class PageSessionRuntimeV3 {
         const linkageOverlay = [...remaining].filter((state) => state.assignments.some((item) => item.parameterId === parameterId)).sort((left, right) => right.order - left.order)[0]
         const pageOverlay = activePage.assignmentOverlays.filter((item) => item.parameterId === parameterId).sort((left, right) => right.order - left.order)[0]
         const survivingOverlay = [drillOverlay ? { value: drillOverlay.value, order: drillOverlay.order } : undefined, linkageOverlay ? { value: linkageOverlay.assignments.find((item) => item.parameterId === parameterId)!.value, order: linkageOverlay.order } : undefined, pageOverlay].filter(Boolean).sort((left, right) => right!.order - left!.order)[0]
-        return { parameterId, value: survivingOverlay?.value ?? this.interactionBaselines.get(parameterId) ?? baselines.get(parameterId)?.value ?? (Object.hasOwn(before, parameterId) ? before[parameterId] : null) }
+        const restoredValue = survivingOverlay ? survivingOverlay.value
+          : this.interactionBaselines.has(parameterId) ? this.interactionBaselines.get(parameterId)!
+          : baselines.has(parameterId) ? baselines.get(parameterId)!.value
+          : Object.hasOwn(before, parameterId) ? before[parameterId] : null
+        return { parameterId, value: restoredValue }
       })
       targetComponentIds = [...targetState.targetComponentIds]
       stateActionId = targetState.actionId

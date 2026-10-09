@@ -55,17 +55,19 @@ export function createComponentQueryRefreshV3<T>(options: {
       const parameters = resolveDatasetParameterValuesV3(component, values)
       const limit = component.dataConfig.limit
       const view = options.resolveView?.(component)
-      return { component, componentId: component.id, datasetId, parameters, limit, ...(view === undefined ? {} : { view }), queryKey: createQueryRuntimeKeyV3(datasetId, parameters, limit, view) }
+      const paging = component.type === 'table' && component.tableConfig?.pagination?.enabled !== false && component.tableConfig?.pagination?.mode === 'server'
+        ? `:server-page:${Math.min(200, Math.max(1, component.tableConfig.pagination.pageSize || 20))}` : ''
+      return { component, componentId: component.id, datasetId, parameters, limit, ...(view === undefined ? {} : { view }), queryKey: createQueryRuntimeKeyV3(datasetId, parameters, limit, view) + paging }
     },
     async execute(descriptor, force, signal) {
       const finish = async (result: QueryResult) => { if (signal.aborted) throw new Error('refresh waiter cancelled'); await options.onResolved?.({ descriptor, value: result.value, source: result.source }); return { queryKey: descriptor.queryKey, source: result.source } }
-      if (!force) { const result = await options.cache.execute(descriptor.queryKey, () => options.load({ ...descriptor, signal }), false); return finish(result) }
+      if (!force) { const result = await options.cache.execute(descriptor.queryKey, sharedSignal => options.load({ ...descriptor, signal: sharedSignal }), false, signal); return finish(result) }
       if (signal.aborted) throw new Error('refresh waiter cancelled')
       const running = forcedInFlight.get(descriptor.queryKey)
       if (running?.mergeable && !running.controller.signal.aborted) { const result = await waitFor<QueryResult>(running, signal); return finish({ value: result.value, source: 'merged' }) }
       if (running && forcedInFlight.get(descriptor.queryKey) === running) forcedInFlight.delete(descriptor.queryKey)
       const sharedController = new AbortController()
-      const request = options.cache.execute(descriptor.queryKey, async () => { const value = await options.load({ ...descriptor, signal: sharedController.signal }); if (sharedController.signal.aborted) throw new Error('forced refresh cancelled before cache write'); return value }, true)
+      const request = options.cache.execute(descriptor.queryKey, sharedSignal => options.load({ ...descriptor, signal: sharedSignal }), true, sharedController.signal)
       const entry: ForcedEntry = { queryKey: descriptor.queryKey, promise: request, controller: sharedController, waiters: new Set(), settled: false, mergeable: true }
       forcedInFlight.set(descriptor.queryKey, entry)
       void request.then(() => { entry.settled = true; entry.mergeable = false; if (forcedInFlight.get(descriptor.queryKey) === entry) forcedInFlight.delete(descriptor.queryKey) }, () => { entry.settled = true; entry.mergeable = false; if (forcedInFlight.get(descriptor.queryKey) === entry) forcedInFlight.delete(descriptor.queryKey) })

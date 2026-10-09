@@ -1,0 +1,37 @@
+# 模型 API 配置入口
+
+本轮增加本地模型配置页 `/model-settings`。设计器与知识库导航均有“模型配置”入口。
+
+## 使用
+
+1. 选择 Gemini、DeepSeek、通义千问（阿里云百炼）或其他 OpenAI 兼容服务。
+2. 填写 API Key；服务地址与模型名称可按账号支持情况修改。
+3. 点击“测试连接”，确认模型能返回所需 JSON。
+4. 点击“保存配置”，再点击“设为默认”。各服务分别保存。
+5. 在知识库打开“本地看板助手”，填写需求，选择月份，点击“使用默认 API 生成医院概览”。生成后进入原生设计器，可编辑、保存、重开。
+
+例如：`按医院运营概览模板生成2026年8月看板，包含核心指标、医疗收入趋势、科室收入、收入结构和床位使用情况。使用知识库口径及本地ADS快照，预算缺失保持空值。`
+
+“使用 ChatGPT 网页”保留现有 Codex 协作入口。API 默认选择只作用于明确的“使用默认 API”按钮，网页生成请求仍可单独使用。
+
+API Key 在本机服务端复用 AES-256-GCM 加密保存，不保存在浏览器存储；配置接口仅返回“是否已保存”。修改地址或模型时留空保留密钥，勾选“清除”并保存才删除。连接测试会调用所选模型并可能产生费用；保存不会调用模型。
+
+## 验证范围
+
+- 全量回归：338 项通过。
+- 模型配置定向测试：3 项通过，包括并发保存、加密落盘、默认配置重载、留空保留和显式清除、HTTP 鉴权、JSON 输出、401/500/超时。
+- 类型检查与生产构建通过。构建沿用现有大包提示。
+- Chromium 实际页面：未保存配置测试连接、保存、设置默认、刷新、复用密钥、API 返回计划、创建原生看板、保存重开与来源记录通过。页面无 JS 异常。
+- 本轮连接验证使用本地 HTTP 接口替身。**Gemini、DeepSeek、通义千问真实外网调用均为 NOT_TESTED**，需后续填入实际密钥后点击“测试连接”。
+- 原有服务端模型配置在页面验收结束后已恢复；没有写入数据库、合并 main、推送或部署。
+- ChatGPT 网页独立审核 PASS。完整审核证据保存于 `E:/codex/work/ty-bi-model-api-20260929/chatgpt-review.txt`。
+
+证据位于 `E:/codex/work/ty-bi-model-api-20260929/browser.json`、`model-settings.png` 和 `api-dashboard.png`。复测命令：`node --test tests/model-provider.test.mjs`、`node scripts/test-model-settings.mjs`。后者暂时使用测试配置并在 finally 恢复，复测期间避免同时修改模型配置。
+
+## 官方兼容接口参考
+
+- [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai)
+- [DeepSeek API](https://api-docs.deepseek.com/)
+- [阿里云百炼：业务空间模型调用](https://help.aliyun.com/zh/model-studio/model-calling-in-sub-workspace)
+
+服务预设来自官方文档，模型名称与地域地址仍以实际账号为准。本轮未以接口替身结果证明任何第三方真实服务可用。

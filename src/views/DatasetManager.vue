@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { onBeforeRouteLeave, RouterLink, useRoute, useRouter } from 'vue-router'
 import {
-  IconArrowLeft, IconBolt, IconBraces, IconCopy, IconDatabase, IconDeviceFloppy, IconPlus,
+  IconArrowLeft, IconBolt, IconBookmark, IconBraces, IconCopy, IconDatabase, IconDeviceFloppy, IconPlus,
   IconRefresh, IconSearch, IconTable, IconTrash, IconX,
 } from '@tabler/icons-vue'
 
@@ -46,18 +46,26 @@ const isDirty = computed(() => JSON.stringify(form) !== savedSnapshot.value)
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const categories = computed(() => [...new Set(items.value.map((item) => item.category).filter(Boolean))])
 const selectedSource = computed(() => sources.value.find((source) => source.id === form.dataSourceId))
+let disposed = false
+let selectionVersion = 0
 
 onMounted(async () => {
   window.addEventListener('beforeunload', handleBeforeUnload)
   await Promise.all([loadSources(), loadDatasets()])
+  if (disposed) return
   const requestedId = typeof route.query.id === 'string' ? route.query.id : ''
   const requested = requestedId ? await api(`/api/datasets/${encodeURIComponent(requestedId)}`) : null
+  if (disposed) return
   if (requested) selectDataset(requested)
   else if (items.value.length) selectDataset(items.value[0])
   else newDataset()
 })
 
-onBeforeUnmount(() => window.removeEventListener('beforeunload', handleBeforeUnload))
+onBeforeUnmount(() => {
+  disposed = true
+  selectionVersion++
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 onBeforeRouteLeave(() => confirmDiscardChanges())
 
 function handleBeforeUnload(event: BeforeUnloadEvent) {
@@ -100,6 +108,7 @@ async function loadDatasets() {
 }
 
 function newDataset() {
+  if (disposed || route.path !== '/datasets') return
   if (!confirmDiscardChanges()) return
   Object.assign(form, emptyDataset())
   previewRows.value = []
@@ -110,11 +119,14 @@ function newDataset() {
 }
 
 async function selectDataset(dataset: DatasetModel) {
+  if (disposed || route.path !== '/datasets') return
   if (!dataset.id || dataset.id === form.id) return
   if (!confirmDiscardChanges()) return
+  const version = ++selectionVersion
   loading.value = true
   try {
     const detail = await api(`/api/datasets/${encodeURIComponent(dataset.id)}`)
+    if (disposed || version !== selectionVersion || route.path !== '/datasets') return
     Object.assign(form, structuredClone(detail))
     syncSavedSnapshot()
     previewRows.value = []
@@ -183,6 +195,7 @@ async function deleteDataset() {
     await loadDatasets()
     if (items.value.length) await selectDataset(items.value[0])
     else {
+      if (disposed || route.path !== '/datasets') return
       Object.assign(form, emptyDataset())
       syncSavedSnapshot()
       await router.replace({ path: '/datasets' })
@@ -250,7 +263,12 @@ async function api(path: string, body?: unknown, requestedMethod?: 'GET' | 'POST
   <div class="dataset-studio-v2">
     <header class="dataset-v2-toolbar">
       <div><IconTable :size="22" /><span><b>数据集 2.0</b><small>元数据 · 字段语义 · 指标 · 参数</small></span></div>
-      <nav><RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/data-sources"><IconDatabase :size="16" />数据源</RouterLink><RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink></nav>
+      <nav>
+        <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink>
+        <RouterLink to="/data-sources"><IconDatabase :size="16" />数据源</RouterLink>
+        <RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink>
+        <RouterLink to="/knowledge"><IconBookmark :size="16" />知识库</RouterLink>
+      </nav>
     </header>
 
     <main class="dataset-v2-layout">

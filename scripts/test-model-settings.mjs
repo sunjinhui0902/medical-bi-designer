@@ -1,0 +1,51 @@
+import { chromium } from '@playwright/test'
+import { createServer } from 'node:http'
+import fs from 'node:fs/promises'
+import assert from 'node:assert/strict'
+const evidence='E:/codex/work/ty-bi-model-api-20260929'
+const config=new URL('../server/.data/model-providers.json',import.meta.url)
+const backup=await fs.readFile(config).catch(e=>{if(e.code!=='ENOENT')throw e;return null})
+const calls=[]
+const stub=createServer(async(req,res)=>{let text='';for await(const chunk of req)text+=chunk;const body=JSON.parse(text);assert.equal(req.headers.authorization,'Bearer local-browser-fixture');calls.push({model:body.model,url:req.url});const plan={schemaVersion:1,template:'hospital-overview',title:'API医院概览验收',month:'2026-08',comparison:'yoy',sections:['summary','trend','departments'],notes:'本地接口替身验证，预算空值'};res.setHeader('Content-Type','application/json');res.end(JSON.stringify({id:'local-fixture',choices:[{message:{content:JSON.stringify(body.messages[0].content.includes('testing')?{ok:true}:plan)},finish_reason:'stop'}]}))})
+await new Promise(resolve=>stub.listen(0,'127.0.0.1',resolve))
+const browser=await chromium.launch({headless:true}),page=await browser.newPage({viewport:{width:1600,height:1100}}),errors=[]
+page.on('pageerror',e=>errors.push(e.message))
+try{
+ await fs.mkdir(evidence,{recursive:true})
+ await page.goto('http://127.0.0.1:5174/model-settings')
+ await page.getByLabel('模型服务',{exact:true}).selectOption('compatible')
+ await page.getByLabel('API 地址',{exact:true}).fill(`http://127.0.0.1:${stub.address().port}/v1`)
+ await page.getByLabel('模型名称',{exact:true}).fill('local-fixture-model')
+ await page.getByLabel('API Key',{exact:true}).fill('local-browser-fixture')
+ await page.getByRole('button',{name:'测试连接',exact:true}).click()
+ await page.getByRole('status').filter({hasText:'连接成功'}).waitFor()
+ await page.getByRole('button',{name:'保存配置',exact:true}).click()
+ await page.getByRole('status').filter({hasText:'配置已保存'}).waitFor()
+ assert.equal(await page.getByLabel('API Key',{exact:true}).inputValue(),'')
+ const publicConfig=await page.request.get('http://127.0.0.1:5175/api/model-settings')
+ assert.ok(!(await publicConfig.text()).includes('local-browser-fixture'))
+ assert.ok(!(await fs.readFile(config,'utf8')).includes('local-browser-fixture'))
+ await page.getByRole('button',{name:'设为默认',exact:true}).click()
+ await page.getByRole('status').filter({hasText:'默认入口已切换'}).waitFor()
+ await page.reload()
+ await page.getByText('其他 OpenAI 兼容服务',{exact:true}).first().waitFor()
+ await page.getByLabel('模型服务',{exact:true}).selectOption('compatible')
+ await page.getByRole('button',{name:'测试连接',exact:true}).click()
+ await page.getByRole('status').filter({hasText:'连接成功'}).waitFor()
+ await page.screenshot({path:`${evidence}/model-settings.png`,fullPage:true})
+ await page.goto('http://127.0.0.1:5174/knowledge')
+ await page.getByRole('button',{name:'本地看板助手',exact:true}).click()
+ await page.getByRole('textbox',{name:'经营分析问题'}).fill('按模板生成医院概览')
+ await page.getByRole('button',{name:'使用默认 API 生成医院概览',exact:true}).click()
+ await page.waitForURL('http://127.0.0.1:5174/',{timeout:20000})
+ await page.waitForFunction(()=>document.querySelectorAll('canvas').length>=1)
+ await page.getByRole('button',{name:'保存',exact:true}).click()
+ await page.reload()
+ await page.waitForFunction(()=>document.querySelectorAll('canvas').length>=1)
+ const provenance=await page.evaluate(()=>{const index=JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3'));return JSON.parse(localStorage.getItem(`medical-bi-designer-dashboard-v3::${index.generation}::${index.activeDashboardId}`)).extensionRefs.localGeneration})
+ assert.equal(provenance.provider,'compatible');assert.equal(provenance.plan.title,'API医院概览验收')
+ assert.deepEqual(errors,[]);assert.equal(calls.length,3)
+ await page.screenshot({path:`${evidence}/api-dashboard.png`,fullPage:true})
+ await fs.writeFile(`${evidence}/browser.json`,JSON.stringify({status:'PASS',checks:['config form','test unsaved','encrypted save','safe GET','default and reload','blank key reuse','API plan to native designer','save/reopen and provenance'],calls,errors,externalProviders:'NOT_TESTED'},null,2))
+ console.log('Model settings and API dashboard E2E PASS')
+}finally{await browser.close();await new Promise(resolve=>stub.close(resolve));if(backup)await fs.writeFile(config,backup);else await fs.unlink(config).catch(e=>{if(e.code!=='ENOENT')throw e})}

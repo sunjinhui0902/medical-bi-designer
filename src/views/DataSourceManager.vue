@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
-  IconArrowLeft, IconBolt, IconBraces, IconCheck, IconChevronRight, IconCode, IconDatabase,
+  IconArrowLeft, IconBolt, IconBookmark, IconBraces, IconCheck, IconChevronRight, IconCode, IconDatabase,
   IconDeviceFloppy, IconEye, IconLock, IconPlus, IconRefresh, IconServer,
   IconShieldCheck, IconTable, IconX,
 } from '@tabler/icons-vue'
@@ -44,6 +44,7 @@ interface PreviewResult {
 }
 
 const router = useRouter()
+const route = useRoute()
 const sources = ref<DataSource[]>([])
 const datasets = ref<Dataset[]>([])
 const activeSourceId = ref('demo-postgres')
@@ -72,7 +73,14 @@ order by month_code`,
 const activeSource = computed(() => sources.value.find((source) => source.id === activeSourceId.value))
 const columnNames = computed(() => preview.value?.fields.map((field) => field.name) ?? [])
 
-onMounted(loadAll)
+onMounted(async () => {
+  await loadAll()
+  if (route.query.preset === 'local-bd-odr') {
+    newSource()
+    Object.assign(sourceForm, { name: 'bd_odr 本地只读验证', host: 'localhost', port: 5433, database: 'bd_odr', username: '', defaultSchema: 'ads' })
+    message.value = '本地连接已填好；请核对用户名，仅在此页输入密码后测试连接并加密保存。'
+  }
+})
 
 async function loadAll() {
   loading.value = true
@@ -209,7 +217,10 @@ async function api(path: string, body?: unknown) {
         <div><b>医疗 BI Data Studio</b><small>Step 5 · PostgreSQL 验证链路</small></div>
       </div>
       <nav>
-        <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink><RouterLink to="/datasets"><IconTable :size="16" />数据集 2.0</RouterLink><RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink>
+        <RouterLink to="/"><IconArrowLeft :size="16" />返回设计器</RouterLink>
+        <RouterLink to="/datasets"><IconTable :size="16" />数据集 2.0</RouterLink>
+        <RouterLink to="/parameters"><IconBraces :size="16" />参数中心</RouterLink>
+        <RouterLink to="/knowledge"><IconBookmark :size="16" />知识库</RouterLink>
         <button type="button" :disabled="loading" @click="loadAll"><IconRefresh :size="16" />刷新</button>
       </nav>
     </header>

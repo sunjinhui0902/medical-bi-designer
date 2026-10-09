@@ -7,6 +7,7 @@ import type {
 } from '../models/dashboard-v3'
 import { buildParameterDependencyDagV3 } from './parameterOptionsRuntimeV3.ts'
 import { isSafeStyleTokenV3 } from './safeStyleV3.ts'
+import { compositionProblemsV3 } from './componentCompositionV3.ts'
 
 export interface DashboardValidationIssueV3 {
   path: string
@@ -149,6 +150,7 @@ function semanticIssues(application: DashboardApplicationV3): DashboardValidatio
     issues.push({ path: '/pages', keyword: 'uniquePageOrder', message: '页面顺序不能重复' })
   }
   application.pages.forEach((page, index) => {
+    for (const message of compositionProblemsV3(page.components)) issues.push({ path: `/pages/${index}/components`, keyword: 'compositionScope', message })
     if (page.order !== index + 1) {
       issues.push({
         path: `/pages/${index}/order`,

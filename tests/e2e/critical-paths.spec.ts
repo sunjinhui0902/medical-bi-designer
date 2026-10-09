@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url'
 const phase8Example = fileURLToPath(new URL('../../docs/02_V3架构/示例/dashboard-v3-phase8.json', import.meta.url))
 const phase9Example = fileURLToPath(new URL('../../docs/02_V3架构/示例/dashboard-v3-phase9.json', import.meta.url))
 
+async function advancedEventPanel(page: import('@playwright/test').Page) {
+  const panel = page.getByRole('dialog', { name: '事件配置', exact: true })
+  await panel.getByRole('button', { name: '高级编辑', exact: true }).click()
+  return panel
+}
+
 test.beforeEach(async ({ page }) => {
   const pageErrors: Error[] = []
   page.on('pageerror', (error) => pageErrors.push(error))
@@ -257,6 +263,47 @@ test('数据管理主页面均可从设计器进入', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
 })
 
+for (const entry of ['目录自动选择', '空目录 URL 指定'] as const) {
+  test(`离开数据集页后迟到详情响应不能把用户拉回旧页面：${entry}`, async ({ page }) => {
+    // Own every input: a clean CI checkout has no saved datasets or sources.
+    const dataset = {
+      version: 2, id: 'dataset-e2e-late-detail', code: 'e2e_late_detail', name: '合成迟到详情测试',
+      category: '测试', purpose: '验证页面离开后的响应边界', description: '',
+      dataSourceId: '', sql: 'select 1 as value', status: 'draft', fields: [], parameters: [],
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const items = entry === '目录自动选择' ? [dataset] : []
+    await page.route(/\/api\/datasets(?:\?.*)?$/, route => route.fulfill({ json: { items, total: items.length } }))
+    await page.route('**/api/datasources', route => route.fulfill({ json: [] }))
+
+    let release!: () => void
+    let detailHeld = false
+    let detailFinished = false
+    const gate = new Promise<void>(resolve => { release = resolve })
+    await page.route(`**/api/datasets/${dataset.id}`, async route => {
+      detailHeld = true
+      await gate
+      await route.fulfill({ json: dataset })
+      detailFinished = true
+    })
+    try {
+      const url = entry === '目录自动选择' ? '/datasets' : `/datasets?id=${dataset.id}`
+      await page.goto(url)
+      await expect.poll(() => detailHeld, { message: '合成数据集详情应已请求并挂起' }).toBe(true)
+      await page.getByRole('link', { name: '数据源', exact: true }).click()
+      await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
+      release()
+      await expect.poll(() => detailFinished, { message: '离开页面后应完成迟到详情响应' }).toBe(true)
+      // Let the real response callback run before checking navigation.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      await expect(page).toHaveURL(/\/data-sources$/)
+      await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
+    } finally {
+      release()
+    }
+  })
+}
+
 test('参数中心可以保存合成参数定义', async ({ page }) => {
   await page.goto('/parameters')
   await page.getByLabel('参数名称').fill('自动化测试年度')
@@ -299,7 +346,7 @@ test('真实图表快速切换指标排序发送最新方向并取消旧请求',
   const payloads: string[] = []
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
-  await page.route('**/api/datasets', async (route) => route.fulfill({
+  await page.route(/\/api\/datasets(?:\?.*)?$/,  async (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify([{
@@ -570,7 +617,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.getByRole('tab', { name: /首页/ }).click()
 
   await page.getByRole('button', { name: '配置页面事件' }).click()
-  let panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  let panel = await advancedEventPanel(page)
   await panel.getByLabel('新建事件').selectOption('pageEnter')
   await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByRole('button', { name: '应用', exact: true }).click()
@@ -582,7 +629,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  panel = await advancedEventPanel(page)
   await panel.getByLabel('新建事件').selectOption('click')
   await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByRole('button', { name: '应用', exact: true }).click()
@@ -596,7 +643,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  panel = await advancedEventPanel(page)
   await panel.getByRole('button', { name: /单击/ }).click()
   await panel.getByLabel('启用').uncheck()
   expect(await page.evaluate(() => localStorage.getItem('medical-bi-designer-dashboard-v3') || '')).toBe(persistedBeforeDraft)
@@ -613,13 +660,13 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.getByRole('tab', { name: /首页/ }).click()
 
   await page.getByRole('button', { name: '配置页面事件' }).click()
-  panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  panel = await advancedEventPanel(page)
   await expect(panel.getByRole('button', { name: /页面进入/ })).toBeVisible()
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  panel = await advancedEventPanel(page)
   await expect(panel.getByRole('button', { name: /单击/ })).toBeVisible()
   await panel.getByRole('button', { name: '关闭事件配置' }).click()
 
@@ -636,7 +683,7 @@ test('P9.3 受控页面与组件事件可保存且配置过程不执行动作', 
   await page.reload()
   await page.getByRole('tab', { name: /页面 2/ }).click()
   await page.getByRole('button', { name: '配置页面事件' }).click()
-  panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  panel = await advancedEventPanel(page)
   await expect(panel.getByLabel('新建事件')).toBeVisible()
   await expect(panel.getByText('dialog 既有事件仅供只读查看')).toHaveCount(0)
   expect(executeRequests).toBe(0)
@@ -650,7 +697,7 @@ test('P9.3 dirty owner 键盘删除支持应用、放弃和取消三分支', asy
     await components.first().click()
     await page.getByRole('tab', { name: '交互', exact: true }).click()
     await page.getByRole('button', { name: '配置组件事件' }).click()
-    const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+    const panel = await advancedEventPanel(page)
     await panel.getByLabel('新建事件').selectOption('click')
     await panel.getByRole('button', { name: '+ 刷新' }).click()
     return panel
@@ -679,7 +726,7 @@ test('P9.3 刷新可选择同页多组件且清空 debounce 后不持久化', as
   await components.first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  const panel = await advancedEventPanel(page)
   await panel.getByLabel('新建事件').selectOption('click')
   await panel.getByRole('button', { name: '+ 刷新' }).click()
   await panel.getByLabel('刷新目标类型').selectOption('components')
@@ -726,7 +773,7 @@ test('P9.3 超策略旧 binding 在事件面板全链路只读', async ({ page }
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  const panel = await advancedEventPanel(page)
   await panel.getByRole('button', { name: /单击/ }).click()
   await expect(panel.getByText(/真实绑定目录/)).toBeVisible()
   await expect(panel.getByLabel('启用')).toBeDisabled()

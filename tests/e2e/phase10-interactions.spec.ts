@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { validateDashboardApplicationV3 } from '../../src/services/dashboardValidationV3'
 
 const examplePath = fileURLToPath(new URL('../../docs/02_V3架构/示例/dashboard-v3-phase10.json', import.meta.url))
 const example = JSON.parse(readFileSync(examplePath, 'utf8'))
@@ -53,14 +54,21 @@ test('P10.5 preview dialog traps focus, honors ESC, and avoids the filter protec
 
 test('P10.5 backdrop policy and eight-direction resize handles remain controlled', async ({ page }) => {
   await page.getByRole('button', { name: '预览', exact: true }).click()
+  const filterBefore = await page.locator('.parameter-control-runtime').boundingBox()
+  if (!filterBefore) throw new Error('filter geometry missing')
   await page.locator('[data-component-id="component-dialog"]').click()
   const dialog = page.getByRole('dialog', { name: /交互详情/ }); await expect(dialog).toBeVisible()
+  const filterAfter = await page.locator('.parameter-control-runtime').boundingBox()
+  expect(filterAfter).toEqual(filterBefore)
   await page.locator('.dialog-backdrop-v3.is-top').click({ position: { x: 5, y: 5 } }); await expect(dialog).toBeVisible()
   await expect(dialog.locator('.dialog-resize-v3')).toHaveCount(8)
   const before = await dialog.boundingBox(); const handle = dialog.locator('.dialog-resize-v3.is-se'); const handleBox = await handle.boundingBox(); if (!before || !handleBox) throw new Error('resize geometry missing')
+  expect(before.y).toBeGreaterThanOrEqual(filterBefore.y + filterBefore.height)
   await page.mouse.move(handleBox.x + 3, handleBox.y + 3); await page.mouse.down(); await page.mouse.move(handleBox.x + 70, handleBox.y + 50); await page.mouse.up()
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(resolve)))
   const after = await dialog.boundingBox(); if (!after) throw new Error('resized geometry missing')
   expect(after.width).toBeGreaterThan(before.width); expect(after.height).toBeGreaterThan(before.height)
+  expect(after.y).toBeGreaterThanOrEqual(filterBefore.y + filterBefore.height)
   await page.getByRole('button', { name: '关闭弹窗' }).click(); await expect(dialog).toHaveCount(0)
 })
 
@@ -73,6 +81,50 @@ test('P10.5 dialog page components execute closeDialog through EventBus', async 
   await dialog.locator('[data-component-id="component-dialog-close"]').click()
   await expect(dialog).toHaveCount(0)
   await expect(opener).toBeFocused()
+})
+
+test('native dialog renders chart/KPI/table, filters its own data, downloads and closes on row action', async ({ page }) => {
+  const application = structuredClone(example), target = application.pages.find((item: { id: string }) => item.id === 'page-dialog')
+  const base = structuredClone(application.pages[0].components[0])
+  const data = { version: 3, sourceKind: 'server', datasetId: 'dataset-dialog-native', dimensions: [{ field: 'department_code', role: 'category' }], measures: [{ field: 'visits', aggregation: 'sum', axis: 'left' }], filters: [], sort: [], limit: 100, parameterBindings: [{ datasetParameterCode: 'hospital_code', parameterId: 'parameter-hospital' }], refreshPolicy: 'onParameterChange' }
+  const analysis = { xMin: null, xMax: null, yLeftMin: null, yLeftMax: null, yRightMin: null, yRightMax: null, showLabels: false, labelDecimals: 0, labelPosition: 'top', labelMode: 'value', labelShowCategory: false, labelShowSeries: false, labelUnit: '', percentageBase: 'category', leftAxisTitle: '', leftAxisUnit: '', leftAxisColor: '#64748b', rightAxisTitle: '', rightAxisUnit: '', rightAxisColor: '#64748b', legendVisible: true, legendPosition: 'bottom', warningLines: [] }
+  const chart = { ...structuredClone(base), id: 'dialog-native-chart', title: '弹窗原生图表', type: 'bar', dataConfig: data, analysisConfig: analysis, position: { x: 20, y: 20, width: 400, height: 240, zIndex: 1 }, events: [] }
+  const kpi = { ...structuredClone(base), id: 'dialog-native-kpi', title: '弹窗原生指标', type: 'kpi', dataConfig: data, kpiConfig: { primaryMeasureField: 'visits', unit: '人次', decimals: 0, useGrouping: true, yoyField: '', momField: '', positiveColor: '#008800', negativeColor: '#cc0000', targetMode: 'fixed', targetValue: 0, targetField: '', showProgress: false, progressColor: '#008800' }, position: { x: 20, y: 280, width: 400, height: 130, zIndex: 1 }, events: [] }
+  const table = { ...structuredClone(base), id: 'dialog-native-table', title: '弹窗原生明细', dataConfig: data, position: { x: 20, y: 440, width: 400, height: 300, zIndex: 1 }, tableConfig: { columns: [{ field: 'department_code', label: '科室', width: 140, format: 'auto', summary: 'none' }, { field: 'visits', label: '人次', width: 100, format: 'number', summary: 'none' }], striped: true, showHeader: true }, events: [{ id: 'native-row-event', enabled: true, event: 'rowClick', actions: [{ id: 'native-close', type: 'closeDialog' }] }] }
+  const tabs = { ...structuredClone(base), id: 'dialog-native-tabs', title: '弹窗页签', type: 'tabs', dataConfig: { ...data, sourceKind: 'mock', datasetId: 'mock-empty', dimensions: [], measures: [], parameterBindings: [] }, position: { x: 20, y: 20, width: 480, height: 520, zIndex: 1 }, tabsConfig: { activeItemId: 'native-first', titlePosition: 'top', titleSize: 38, alignment: 'left', stylePreset: 'default', items: [{ id: 'native-first', label: '指标趋势', value: 'first', visible: true, padding: 12, gap: 12, background: '#ffffff', componentIds: [chart.id, kpi.id] }, { id: 'native-second', label: '其他', value: 'second', visible: true, padding: 12, gap: 12, background: '#ffffff', componentIds: [] }] }, events: [] }
+  table.position.y = 560
+  target.components = [tabs, chart, kpi, table]
+  target.canvas.height = 900
+  target.controls = [{ id: 'dialog-native-filter', type: 'input', parameterIds: ['parameter-hospital'], position: { x: 20, y: 20, width: 240, height: 44, zIndex: 1 }, styleConfig: { labelColor: '#243447', labelSize: 12 }, interaction: { submitMode: 'immediate', clearable: true } }]
+  expect(validateDashboardApplicationV3(application).issues).toEqual([])
+  const requests: Array<Record<string, unknown>> = []
+  await page.route('**/api/datasets/dataset-dialog-native/execute', async route => {
+    const body = route.request().postDataJSON(), value = body.parameters?.hospital_code === 'H2' ? 11 : 7
+    requests.push(body.parameters ?? {})
+    await route.fulfill({ json: { fields: [{ name: 'department_code', dataType: 'string' }, { name: 'visits', dataType: 'number' }], rows: [{ department_code: 'SYNTHETIC', visits: value }], rowCount: 1 } })
+  })
+  await replaceDashboardFixture(page, application); await page.reload(); await page.getByRole('button', { name: '预览', exact: true }).click()
+  await page.locator('[data-component-id="component-dialog"]').click()
+  const dialog = page.getByRole('dialog', { name: /交互详情/ })
+  await expect(dialog.locator('[data-component-id="dialog-native-chart"] canvas')).toBeVisible()
+  await expect(dialog.locator('[data-component-id="dialog-native-kpi"] .kpi-value')).toContainText('7')
+  await dialog.getByRole('button', { name: '其他', exact: true }).click()
+  await expect(dialog.locator('[data-component-id="dialog-native-chart"]')).toHaveCount(0)
+  await dialog.getByRole('button', { name: '指标趋势', exact: true }).click()
+  await expect(dialog.locator('[data-component-id="dialog-native-chart"] canvas')).toBeVisible()
+  await dialog.getByLabel('医院', { exact: true }).fill('H2'); await dialog.getByLabel('医院', { exact: true }).press('Tab')
+  await expect(dialog.locator('[data-component-id="dialog-native-kpi"] .kpi-value')).toContainText('11')
+  await expect.poll(() => requests.some(request => request.hospital_code === 'H2')).toBe(true)
+  const download = page.waitForEvent('download')
+  await dialog.getByRole('button', { name: /下载/ }).click(); expect((await download).suggestedFilename()).toMatch(/\.csv$/)
+  mkdirSync('E:/codex/work/tybi-interaction-perf-20261009', { recursive: true })
+  await page.screenshot({ path: 'E:/codex/work/tybi-interaction-perf-20261009/native-dialog-desktop.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(dialog).toBeVisible()
+  const rect = await dialog.boundingBox(); expect(rect!.x + rect!.width).toBeLessThanOrEqual(390)
+  await page.screenshot({ path: 'E:/codex/work/tybi-interaction-perf-20261009/native-dialog-phone.png' })
+  await dialog.locator('[data-component-id="dialog-native-table"] tbody tr').click()
+  await expect(dialog).toHaveCount(0)
 })
 
 test('P10.6 browser adapter requests noopener/noreferrer and never exposes opener', async ({ page, context }) => {
@@ -92,7 +144,8 @@ test('P10.7 designer exposes controlled Phase10 action authoring', async ({ page
   await page.locator('.design-component').first().click()
   await page.getByRole('tab', { name: '交互', exact: true }).click()
   await page.getByRole('button', { name: '配置组件事件' }).click()
-  const panel = page.getByRole('complementary', { name: '事件配置', exact: true })
+  const panel = page.getByRole('dialog', { name: '事件配置', exact: true })
+  await panel.getByRole('button', { name: '高级编辑', exact: true }).click()
   await panel.getByLabel('新建事件').selectOption('doubleClick')
   await panel.getByLabel('新增交互动作').selectOption('navigatePage')
   await expect(panel.getByLabel('目标页面')).toBeVisible()

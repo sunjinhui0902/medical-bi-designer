@@ -79,6 +79,8 @@
       "properties": {
         "id": { "$ref": "#/$defs/nonEmptyString" },
         "type": { "enum": ["kpi", "line", "bar", "pie", "table", "text", "image", "icon", "decoration", "map", "tabs", "income", "outpatient", "ranking", "bed", "area", "combo", "scatter", "bubble"] },
+        "groupId": { "$ref": "#/$defs/nonEmptyString" },
+        "styleConfig": { "type": "object", "properties": { "pointerEvents": { "enum": ["auto", "none"] } }, "additionalProperties": true },
         "textConfig": { "$ref": "#/$defs/textConfig" },
         "imageConfig": { "$ref": "#/$defs/imageConfig" },
         "iconConfig": { "$ref": "#/$defs/iconConfig" },

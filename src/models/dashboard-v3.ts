@@ -171,18 +171,18 @@ export interface ThemeConfigV3 {
 }
 
 export const lightThemeTokensV3: DashboardThemeTokensV3 = {
-  canvasBackground: '#f7f9fb', panelBackground: '#ffffff', panelBorder: '#e1e7ec',
-  panelRadius: 7, panelShadow: '0 3px 9px rgba(36,52,71,.04)',
-  textPrimary: '#243447', textSecondary: '#64748b',
-  chartPalette: ['#1477c9', '#19a974', '#f59f00', '#8b5cf6', '#ef4444'],
+  canvasBackground: '#f0f4f9', panelBackground: '#ffffff', panelBorder: '#dce5ef',
+  panelRadius: 10, panelShadow: '0 4px 18px rgba(22,43,69,.045)',
+  textPrimary: '#182b42', textSecondary: '#5e728c',
+  chartPalette: ['#2375c9', '#159b8a', '#e99a29', '#657ba7', '#d45e68'],
   statusNormal: '#19a974', statusWarning: '#f59f00', statusDanger: '#d9485f',
 }
 
 export const darkThemeTokensV3: DashboardThemeTokensV3 = {
-  canvasBackground: '#071426', panelBackground: '#0d2138', panelBorder: '#1d4d73',
-  panelRadius: 8, panelShadow: '0 10px 28px rgba(0,10,24,.45)',
-  textPrimary: '#e7f5ff', textSecondary: '#8eb8d8',
-  chartPalette: ['#39b8ff', '#2dd4bf', '#fbbf24', '#a78bfa', '#fb7185'],
+  canvasBackground: '#08111f', panelBackground: '#102238', panelBorder: '#294762',
+  panelRadius: 6, panelShadow: '0 8px 28px rgba(0,8,20,.35)',
+  textPrimary: '#eaf3ff', textSecondary: '#a4b9ce',
+  chartPalette: ['#50c7ff', '#45d7bc', '#f0b64c', '#739cf0', '#ee7c88'],
   statusNormal: '#2dd4bf', statusWarning: '#fbbf24', statusDanger: '#fb7185',
 }
 

@@ -8,11 +8,14 @@ const props = defineProps<{
   dashboards: Array<{ id: string; name: string; pageCount: number }>
   createDashboard: (name: string) => string | null
   deleteDashboard: (dashboardId: string) => string | null
+  sampleBusy?: boolean
+  sampleError?: string
 }>()
 
 const emit = defineEmits<{
   close: []
   select: [dashboardId: string]
+  sample: [kind: 'hospital' | 'interaction' | 'outpatient']
 }>()
 
 const name = ref('')
@@ -50,6 +53,14 @@ function confirmDelete() {
           <button type="button" class="delete-dashboard" :disabled="dashboards.length <= 1" :aria-label="`删除看板${dashboard.name}`" @click="pendingDeleteId = dashboard.id"><IconTrash :size="15" /></button>
         </div>
       </div>
+      <section class="sample-dashboards" aria-label="示例看板">
+        <b>示例看板</b>
+        <button type="button" :disabled="sampleBusy" @click="emit('sample', 'hospital')">医院运营概览</button>
+        <button type="button" :disabled="sampleBusy" @click="emit('sample', 'outpatient')">门诊运营分析 · 五页样例</button>
+        <button type="button" :disabled="sampleBusy" @click="emit('sample', 'interaction')">科室联动、跳转与明细演示</button>
+        <small>{{ sampleBusy ? '正在打开示例…' : '已有示例直接打开；首次创建独立看板并保存，保留其他看板。' }}</small>
+        <p v-if="sampleError" role="alert">{{ sampleError }}</p>
+      </section>
       <form @submit.prevent="submit"><label>新看板名称<input v-model="name" maxlength="60" required /></label><button type="submit"><IconPlus :size="15" />新建看板</button><p v-if="error" role="alert">{{ error }}</p></form>
       <div v-if="pendingDeleteId" class="dashboard-delete-mask" role="presentation" @click.self="pendingDeleteId = ''"><section role="alertdialog" aria-modal="true" aria-label="确认删除看板"><IconTrash :size="23" /><h3>删除“{{ pendingDelete()?.name }}”？</h3><p>该看板的全部画布、组件和参数配置将从本机工作区移除，此操作无法撤销。</p><div><button type="button" @click="pendingDeleteId = ''">取消</button><button type="button" class="danger" @click="confirmDelete">确认删除</button></div></section></div>
     </section>
@@ -57,6 +68,7 @@ function confirmDelete() {
 </template>
 
 <style scoped>
+.sample-dashboards{display:flex;flex-wrap:wrap;gap:8px;padding:14px 18px;border-top:1px solid #e2e8f0}.sample-dashboards>b,.sample-dashboards>small,.sample-dashboards>p{width:100%}.sample-dashboards>b{font-size:12px}.sample-dashboards>small{color:#64748b;font-size:11px}.sample-dashboards>button{padding:8px 10px;border:1px solid #bdd3e5;border-radius:6px;color:#1477c9;background:#eff8ff}.sample-dashboards>p{margin:0;color:#b42318;font-size:12px}
 .dashboard-manager-mask{position:fixed;inset:0;z-index:130;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.46)}
 .dashboard-manager{width:min(520px,94vw);overflow:hidden;color:#334155;background:#fff;border:1px solid #d7e1e8;border-radius:12px;box-shadow:0 28px 80px rgba(15,23,42,.3)}
 .dashboard-manager header,.dashboard-manager header>div,.dashboard-manager-list button,.dashboard-manager form{display:flex;align-items:center}

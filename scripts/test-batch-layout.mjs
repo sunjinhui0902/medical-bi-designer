@@ -1,0 +1,85 @@
+import { chromium, expect } from '@playwright/test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+const evidence = 'E:/codex/work/ty-bi-batch-layout-20260929'
+await fs.mkdir(evidence, { recursive: true })
+const browser = await chromium.launch({ headless: true }), page = await browser.newPage({ viewport: { width: 1800, height: 1200 } })
+const errors = [], failures = []
+page.on('pageerror', e => errors.push(e.message))
+page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 400) failures.push(`${r.status()} ${r.url()}`) })
+const comparable = a => { const copy = structuredClone(a); delete copy.updatedAt; return copy }
+const active = w => w.dashboards.find(d => d.id === w.activeDashboardId)
+async function saved() {
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  return page.evaluate(() => {
+    const w = JSON.parse(localStorage.getItem('medical-bi-designer-workspace-v3'))
+    return { ...w, dashboards: w.dashboards.map(d => JSON.parse(localStorage.getItem(`medical-bi-designer-dashboard-v3::${w.generation}::${d.id}`))) }
+  })
+}
+async function open() { await page.getByRole('button', { name: '批量调整 / 文字调整', exact: true }).click(); return page.getByRole('dialog') }
+async function apply() { await page.getByRole('button', { name: '应用到当前看板', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' }) }
+try {
+  await page.goto('http://127.0.0.1:5174/knowledge')
+  await page.getByRole('button', { name: '本地看板助手', exact: true }).click()
+  await page.getByRole('textbox', { name: '经营分析问题' }).fill('2026年1月至8月门诊收入、医疗成本、出院人次趋势同比')
+  await page.getByRole('button', { name: '生成草稿预览', exact: true }).click()
+  await page.getByRole('button', { name: '添加到设计器继续编辑', exact: true }).click()
+  await page.waitForURL('http://127.0.0.1:5174/')
+  await page.waitForFunction(() => document.querySelectorAll('canvas').length >= 3)
+  const original = await saved()
+  let dialog = await open()
+  await expect(dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox')).toHaveCount(3)
+  await expect(dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').first()).not.toBeChecked()
+  await dialog.getByRole('button', { name: '左对齐', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('选择不能为空')
+  await expect(dialog.getByRole('button', { name: '应用到当前看板', exact: true })).toHaveCount(0)
+  await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(0).check(); await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(1).check()
+  await dialog.getByRole('button', { name: '水平等间距', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('三个')
+  await dialog.getByLabel('批量宽度').fill('9999')
+  await dialog.getByRole('button', { name: '统一宽度', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('越出画布')
+  await dialog.getByLabel('批量宽度').fill('200'); await dialog.getByLabel('批量高度').fill('100')
+  await dialog.getByRole('button', { name: '统一宽高', exact: true }).click()
+  await expect(dialog.getByRole('button', { name: '应用到当前看板', exact: true })).toHaveCount(1)
+  await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(2).check()
+  await expect(dialog.getByRole('button', { name: '应用到当前看板', exact: true })).toHaveCount(0)
+  await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(2).uncheck()
+  await dialog.getByRole('button', { name: '统一宽高', exact: true }).click()
+  await page.screenshot({ path: `${evidence}/subset-preview.png`, fullPage: true })
+  await apply()
+  const subset = await saved(), expected = comparable(active(original))
+  const expectedCharts = expected.pages[0].components.filter(c => c.type === 'line')
+  expectedCharts.slice(0, 2).forEach(c => { c.position.width = 200; c.position.height = 100 })
+  assert.deepEqual(comparable(active(subset)), expected)
+  await page.getByRole('button', { name: '撤销文字调整', exact: true }).click()
+  assert.deepEqual(comparable(active(await saved())), comparable(active(original)))
+  dialog = await open()
+  await dialog.getByRole('button', { name: '全选当前页图表', exact: true }).click()
+  await dialog.getByLabel('批量宽度').fill('200'); await dialog.getByLabel('批量高度').fill('100')
+  await dialog.getByRole('button', { name: '统一宽高', exact: true }).click(); await apply()
+  const small = await saved()
+  dialog = await open(); await dialog.getByRole('button', { name: '全选当前页图表', exact: true }).click()
+  await dialog.getByRole('button', { name: '水平等间距', exact: true }).click(); await apply()
+  const distributed = await saved()
+  const sorted = active(distributed).pages[0].components.filter(c => c.type === 'line').sort((a,b) => a.position.x - b.position.x)
+  const gap1 = sorted[1].position.x - sorted[0].position.x - sorted[0].position.width, gap2 = sorted[2].position.x - sorted[1].position.x - sorted[1].position.width
+  assert.ok(Math.abs(gap1 - gap2) < 0.000002)
+  assert.deepEqual(active(distributed).pages[0].components.map(c => c.dataConfig), active(small).pages[0].components.map(c => c.dataConfig))
+  await page.getByRole('button', { name: '撤销文字调整', exact: true }).click()
+  assert.deepEqual(comparable(active(await saved())), comparable(active(small)))
+  dialog = await open(); await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(0).check(); await dialog.getByRole('region', { name: '勾选图表批量布局' }).getByRole('checkbox').nth(1).check()
+  await dialog.getByLabel('批量宽度').fill('300'); await dialog.getByLabel('批量高度').fill('150')
+  await dialog.getByRole('button', { name: '统一宽高', exact: true }).click(); await apply()
+  const final = await saved(), expectedFinal = comparable(active(small))
+  expectedFinal.pages[0].components.filter(c => c.type === 'line').slice(0,2).forEach(c => { c.position.width = 300; c.position.height = 150 })
+  assert.deepEqual(comparable(active(final)), expectedFinal)
+  await page.reload(); await page.waitForFunction(() => document.querySelectorAll('canvas').length >= 3)
+  const reopened = await saved(); assert.deepEqual(comparable(active(reopened)), expectedFinal)
+  assert.deepEqual(original.dashboards.filter(d => d.id !== original.activeDashboardId), reopened.dashboards.filter(d => d.id !== reopened.activeDashboardId))
+  assert.deepEqual(errors, []); assert.deepEqual(failures, [])
+  await page.screenshot({ path: `${evidence}/reopened.png`, fullPage: true })
+  await fs.writeFile(`${evidence}/browser.json`, JSON.stringify({ status: 'PASS', checks: ['no default all selection', 'empty subset rejected', 'two-chart distribution rejected', 'overflow rejected', 'selection change invalidates preview', 'selected two only resize; third unchanged', 'atomic undo', 'three-chart quick equal gap', 'save/reopen exact layout', 'bindings and other dashboards retained'], errors, failures }, null, 2))
+  console.log('Batch layout real browser PASS')
+} catch (error) { await fs.writeFile(`${evidence}/browser-failure.txt`, `${error.stack}\n${await page.locator('body').innerText()}`); throw error }
+finally { await browser.close() }

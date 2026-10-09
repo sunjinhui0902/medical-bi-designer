@@ -65,7 +65,7 @@ test('DE-1 typed presets are available without rewriting legacy empty theme toke
   const migrated = migrateDashboardToV3(app)
   assert.ok(migrated.application)
   assert.deepEqual(migrated.application!.theme.tokens, {})
-  assert.equal(darkThemeTokensV3.canvasBackground, '#071426')
+  assert.equal(darkThemeTokensV3.canvasBackground, '#08111f')
 })
 
 test('DE-3 parser rejects executable or unsupported GeoJSON geometry', () => {

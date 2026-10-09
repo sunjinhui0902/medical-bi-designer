@@ -149,8 +149,8 @@ function aggregate(rows, field, aggregation) {
   const numbers = values.map(Number).filter(Number.isFinite)
   if (!numbers.length) return 0
   if (aggregation === 'avg') return numbers.reduce((sum, value) => sum + value, 0) / numbers.length
-  if (aggregation === 'min') return Math.min(...numbers)
-  if (aggregation === 'max') return Math.max(...numbers)
+  if (aggregation === 'min') return numbers.reduce((value, next) => Math.min(value, next), Infinity)
+  if (aggregation === 'max') return numbers.reduce((value, next) => Math.max(value, next), -Infinity)
   return numbers.reduce((sum, value) => sum + value, 0)
 }
 

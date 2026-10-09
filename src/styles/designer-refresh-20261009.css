@@ -1,0 +1,39 @@
+.designer-shell{font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;grid-template-rows:auto minmax(0,1fr);background:#eef2f6}
+.step4-shell.is-preview .runtime-event-status{height:30px;min-height:30px;line-height:18px}
+.step4-shell.is-preview .runtime-event-status>span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step4-shell.is-preview .interactive-artboard,.step4-shell.is-preview .interactive-canvas{transition:none}
+.designer-shell[data-theme=medical-light] .artboard-wrap,.designer-shell[data-theme=medical-light] .canvas-stage{background:#e8eef5}
+.designer-toolbar{grid-template-columns:minmax(210px,1fr) minmax(240px,1fr);gap:10px;padding:12px 20px;background:#fff}
+.toolbar-actions{grid-column:1/-1;justify-content:flex-start;flex-wrap:wrap;padding-top:10px;border-top:1px solid #e7edf4;gap:7px}
+.toolbar-actions button,.toolbar-actions>a{font-size:12px;border-radius:7px;cursor:pointer}
+.toolbar-actions>a{padding:8px 12px;background:#eff6ff;color:#2054a4;text-decoration:none;border:1px solid #d6e4f7}
+.component-panel.is-panel-collapsed,.property-panel.is-panel-collapsed{visibility:hidden;pointer-events:none;border:0}
+.alignment-guide{position:absolute;z-index:2147480000;pointer-events:none;display:block;background:#e446a0;box-shadow:0 0 0 1px #ffffff70}
+.alignment-guide.is-vertical{top:0;bottom:0;width:1px}.alignment-guide.is-horizontal{left:0;right:0;height:1px}
+.design-component.is-batch-selected,.tab-child-component.is-batch-selected{outline:3px solid #dd4398!important;outline-offset:3px;box-shadow:0 0 0 6px #dd439822!important}
+[data-floating-panel=true]{pointer-events:none!important;background:transparent!important;backdrop-filter:none!important}
+[data-floating-panel=true]>[role=dialog]{pointer-events:auto;box-shadow:0 16px 64px #17273b45;border:1px solid #c5d4e5}
+[data-floating-panel=true]>[role=dialog]>header{position:sticky;top:0;z-index:2;background:inherit;padding:12px 0;border-bottom:1px solid #dbe4ef}
+.mobile-preview .design-component[data-component-type=kpi] .widget-header{min-height:32px}
+.mobile-preview .kpi-value{font-size:clamp(23px,4vw,32px)!important;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
+.mobile-preview .kpi-value small{display:inline!important;font-size:10px!important;margin-left:4px!important}
+.mobile-preview .kpi-comparisons{display:flex;flex-wrap:wrap;gap:4px 10px}.mobile-preview .kpi-trend{font-size:11px!important;margin:5px 0!important}
+.hospital-overview-shell .interactive-canvas .widget-header{border-bottom:1px solid var(--theme-border);padding:10px 14px;min-height:38px}
+.hospital-overview-shell .interactive-canvas .widget-header h3{font-size:13px;line-height:1.5;font-weight:650}
+.hospital-overview-shell .interactive-canvas .kpi-value{font-variant-numeric:tabular-nums;letter-spacing:-.5px;line-height:1.2}
+.designer-shell:not(.mobile-preview) .interactive-canvas:not(.mobile-preview) .kpi-value{font-size:clamp(24px,2.2vw,32px)}
+.designer-shell[data-theme=medical-dark] .interactive-canvas.grid-hidden{background-image:radial-gradient(ellipse at 50% 0,#16304e55,transparent 70%);background-size:100% 100%;background-repeat:no-repeat}
+.hospital-overview-shell .interactive-canvas th{background:color-mix(in srgb,var(--theme-panel) 90%,#4d7bbe)!important;color:var(--theme-text-secondary)!important}
+.hospital-overview-shell .interactive-canvas td{color:var(--theme-text)!important;border-color:var(--theme-border)!important}
+.hospital-overview-shell .interactive-canvas tbody tr:hover{background:color-mix(in srgb,var(--theme-panel) 87%,#39b8ff)!important}
+.designer-shell[data-theme=medical-dark]{--stage:#08111f;background:#08111f}
+.designer-shell[data-theme=medical-dark] .artboard-wrap,.designer-shell[data-theme=medical-dark] .canvas-stage{background:#08111f}
+.designer-shell[data-theme=medical-dark] .interactive-canvas{background-image:radial-gradient(ellipse at 50% 0,#16304e55,transparent 70%)}
+.designer-shell[data-theme=medical-dark] .interactive-canvas .design-component{box-shadow:0 8px 24px #00000024}
+.designer-shell[data-theme=medical-dark] .interactive-canvas .widget-header{background:transparent!important}
+.designer-shell[data-theme=medical-dark] .interactive-canvas .table-actions-v3,.designer-shell[data-theme=medical-dark] .interactive-canvas footer{background:var(--theme-panel);color:var(--theme-text-secondary)}
+.designer-shell[data-theme=medical-dark] .interactive-canvas button{background:#132f4b;color:#d4e7f8;border-color:#315275}
+.designer-shell[data-theme=medical-dark] .interactive-canvas .kpi-value{color:#70d4ff!important}
+.designer-shell[data-theme=medical-dark] .interactive-canvas .text-renderer{color:var(--theme-text)}
+@media(max-width:768px){.designer-toolbar{padding:9px 12px;gap:7px;grid-template-columns:1fr}.dashboard-identity{justify-content:flex-start}.toolbar-actions{gap:5px;padding-top:7px}.toolbar-actions button{font-size:11px;height:32px}.hospital-overview-shell .mobile-preview .widget-header{padding:7px 9px;min-height:36px}.hospital-overview-shell .mobile-preview .widget-header h3{font-size:11px;line-height:1.45}.mobile-preview .kpi-widget{padding:8px!important}.mobile-preview .kpi-value{font-size:25px!important}}
+@media(prefers-reduced-motion:reduce){.designer-shell *{scroll-behavior:auto!important;animation:none!important}}

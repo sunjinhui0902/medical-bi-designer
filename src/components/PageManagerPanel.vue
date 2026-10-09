@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import {
   IconArrowDown,
   IconArrowUp,
@@ -23,6 +23,7 @@ const props = defineProps<{
   pages: PageListItemV3[]
   activePageId: string
   defaultPageId: string
+  readOnly?: boolean
   createPage: (options: { name: string; code: string }) => string | null
   copyPage: (options: { name: string; code: string }) => string | null
 }>()
@@ -40,6 +41,15 @@ const draftName = ref('')
 const draftCode = ref('')
 const editorError = ref('')
 const confirmedDeletePageId = ref<string | null>(null)
+const pageStrip = ref<HTMLElement | null>(null)
+watch(() => props.activePageId, async () => {
+  await nextTick()
+  const strip = pageStrip.value, active = strip?.querySelector<HTMLElement>('[aria-selected="true"]')
+  if (!strip || !active) return
+  const visible = strip.getBoundingClientRect(), selected = active.getBoundingClientRect()
+  if (selected.left < visible.left) strip.scrollLeft += selected.left - visible.left
+  else if (selected.right > visible.right) strip.scrollLeft += selected.right - visible.right
+}, { immediate: true })
 const activeIndex = computed(() => props.pages.findIndex((page) => page.id === props.activePageId))
 const activePage = computed(() => props.pages[activeIndex.value])
 const confirmingDelete = computed(() => confirmedDeletePageId.value === props.activePageId)
@@ -114,7 +124,7 @@ function confirmDelete() {
 
 <template>
   <section class="page-manager" aria-label="页面管理">
-    <div class="page-strip" role="tablist" aria-label="页面列表">
+    <div ref="pageStrip" class="page-strip" role="tablist" aria-label="页面列表">
       <button
         v-for="page in pages"
         :key="page.id"
@@ -133,7 +143,7 @@ function confirmDelete() {
       </button>
     </div>
 
-    <div class="page-actions" aria-label="页面操作">
+    <div v-if="!readOnly" class="page-actions" aria-label="页面操作">
       <button type="button" class="create-page" title="直接新建画布" aria-label="新建页面" @click="createImmediately"><IconFilePlus :size="15" /><span>新建画布</span></button>
       <button type="button" title="复制当前页面" aria-label="复制当前页面" :disabled="activePage?.type !== 'standard'" @click="openEditor('copy')"><IconCopy :size="15" /></button>
       <button type="button" title="上移当前页面" aria-label="上移当前页面" :disabled="activeIndex <= 0" @click="emit('move', { pageId: activePageId, direction: -1 })"><IconArrowUp :size="15" /></button>
@@ -174,7 +184,7 @@ function confirmDelete() {
 <style scoped>
 .page-manager{position:relative;display:flex;align-items:center;gap:10px;min-width:0;padding:5px 12px;background:rgba(255,255,255,.96);border-bottom:1px solid #d9e0e6}
 .page-strip{display:flex;flex:1;gap:5px;min-width:0;overflow-x:auto;scrollbar-width:thin}
-.page-tab{display:flex;align-items:center;gap:6px;min-width:110px;height:32px;padding:0 9px;color:#637282;background:#f7f9fb;border:1px solid #dfe5eb;border-radius:6px}
+.page-tab{display:flex;flex-shrink:0;align-items:center;gap:6px;min-width:110px;height:32px;padding:0 9px;color:#637282;background:#f7f9fb;border:1px solid #dfe5eb;border-radius:6px}
 .page-tab>span{display:grid;place-items:center;width:18px;height:18px;color:#84919e;font-size:9px;background:#e9eef2;border-radius:50%}
 .page-tab b{max-width:130px;overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
 .page-tab em,.page-tab small{padding:2px 4px;font-size:8px;font-style:normal;border-radius:3px}

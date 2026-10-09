@@ -1,0 +1,73 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { chromium } from '@playwright/test'
+import assert from 'node:assert/strict'
+import { getLocalBaselineSeries } from '../server/local-baselines.mjs'
+const evidence = process.argv[2] || 'E:/codex/work/ty-bi-hospital-template-20260929'
+await fs.mkdir(evidence, { recursive: true })
+const browser = await chromium.launch({ headless: true })
+const page = await browser.newPage({ viewport: { width: 1511, height: 940 } })
+const errors = [], failed = []
+page.on('pageerror', error => errors.push(error.message))
+page.on('requestfailed', request => failed.push(request.url()))
+const series = await getLocalBaselineSeries('dashboard_medical_cost')
+const costAt = month => (Number(series.rows.find(r => r.month === month).value) / 10000).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+try {
+  await page.goto('http://127.0.0.1:5174/knowledge')
+  await page.getByRole('button', { name: '本地看板助手', exact: true }).click()
+  assert.equal(await page.getByRole('link', { name: '查看医院运营概览模板样例与提示词' }).getAttribute('href'), '/hospital-overview-sample.html')
+  await page.goto('http://127.0.0.1:5174/hospital-overview-sample.html')
+  await page.waitForFunction(() => document.querySelectorAll('canvas').length === 2)
+  assert.equal(await page.locator('#cost-value').textContent(), costAt('2026-08'))
+  assert.equal(await page.locator('.mini').count(), 7)
+  assert.ok((await page.locator('#mini-grid').innerText()).includes('119.16%'))
+  assert.ok(!(await page.locator('body').innerText()).includes('Infinity'))
+  assert.equal(await page.locator('#month option').count(), 8)
+  await page.screenshot({ path: `${evidence}/sample-desktop.png`, fullPage: true })
+  await page.getByLabel('月份', { exact: true }).selectOption('07')
+  assert.equal(await page.locator('#cost-value').textContent(), costAt('2026-07'))
+  await page.getByLabel('年份', { exact: true }).selectOption('2025')
+  assert.equal(await page.locator('#month').inputValue(), '07')
+  assert.equal(await page.locator('#cost-value').textContent(), costAt('2025-07'))
+  await page.getByLabel('月份', { exact: true }).selectOption('12')
+  await page.getByLabel('年份', { exact: true }).selectOption('2026')
+  assert.equal(await page.locator('#month').inputValue(), '08')
+  await page.getByLabel('比较', { exact: true }).selectOption('mom')
+  const august = Number(series.rows.find(r => r.month === '2026-08').value), july = Number(series.rows.find(r => r.month === '2026-07').value)
+  const change = (august - july) / Math.abs(july) * 100
+  assert.equal(await page.locator('#cost-comparison').textContent(), `环比 ${change > 0 ? '+' : ''}${change.toFixed(1)}%`)
+  const point = await page.evaluate(() => {
+    const chart = echarts.getInstanceByDom(document.getElementById('trend')), p = chart.convertToPixel({ seriesIndex: 0 }, [0, chart.getOption().series[0].data[0]])
+    const box = document.getElementById('trend').getBoundingClientRect()
+    return { x: box.x + p[0], y: box.y + p[1] + 10 }
+  })
+  await page.mouse.click(point.x, point.y)
+  assert.equal(await page.locator('#month').inputValue(), '01')
+  assert.equal(await page.locator('#cost-value').textContent(), costAt('2026-01'))
+  await page.getByRole('button', { name: '查看医疗成本来源', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await page.getByRole('dialog').waitFor()
+  assert.ok((await page.getByRole('dialog').innerText()).includes(series.source))
+  assert.ok((await page.getByRole('dialog').innerText()).includes(series.evidenceReference))
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '查看 / 复制提示词', exact: true }).click()
+  assert.ok((await page.getByRole('dialog').innerText()).includes('不得补零'))
+  await page.screenshot({ path: `${evidence}/prompt.png` })
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByRole('button', { name: '数据与缺口说明', exact: true }).click()
+  assert.ok((await page.getByRole('dialog').innerText()).includes('未绑定：'))
+  await page.getByRole('button', { name: '关闭', exact: true }).click()
+  await page.getByLabel('月份', { exact: true }).selectOption('08')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: `${evidence}/sample-mobile.png`, fullPage: true })
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 390))
+  await page.context().setOffline(true)
+  await page.goto(new URL(`file:///${path.resolve('public/hospital-overview-sample.html').replaceAll('\\', '/')}` ).href)
+  await page.waitForFunction(() => document.querySelectorAll('canvas').length === 2)
+  assert.equal(await page.locator('#cost-value').textContent(), costAt('2026-08'))
+  assert.deepEqual(errors, [])
+  assert.deepEqual(failed, [])
+  const result = { status: 'PASS', checks: ['actual evidence formatting', '119.16 percent retained', 'year/month cascade and clamp', 'month value changes', 'comparison recalculation', 'actual chart click changes month', 'keyboard source dialog', 'prompt dialog', 'missing explanation', 'mobile no overflow', 'offline standalone rendering'], errors, failed }
+  await fs.writeFile(`${evidence}/browser.json`, JSON.stringify(result, null, 2))
+  console.log(JSON.stringify(result))
+} finally { await browser.close() }

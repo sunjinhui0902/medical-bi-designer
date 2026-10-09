@@ -1,0 +1,39 @@
+.hospital-overview-shell { --hospital-blue:#2855ff; --hospital-ink:#263b58; --hospital-muted:#8190a5; }
+.hospital-overview-shell .artboard-wrap,
+.hospital-overview-shell.is-preview .artboard-wrap { background:#eef3fb; }
+.hospital-overview-shell .interactive-canvas { border:0; background-image:none; }
+.hospital-overview-shell .artboard-heading { display:none; }
+.hospital-overview-shell .interactive-artboard { padding:0; }
+.hospital-overview-shell .interactive-canvas .design-component { padding:18px 18px 14px; box-shadow:0 3px 12px rgba(35,64,110,.03); }
+.hospital-overview-shell .design-component-header { padding-left:0; min-height:22px; }
+.hospital-overview-shell .design-component-header > span { line-height:1.5; }
+.hospital-overview-shell .design-component-body { padding-top:10px; }
+.hospital-overview-shell .design-component.is-text-component { padding:0; }
+.hospital-overview-shell .design-component.is-text-component .design-component-body { padding:0; }
+.hospital-overview-shell .controlled-text { justify-content:flex-start !important; align-items:center !important; }
+.hospital-overview-shell .kpi-value { margin-top:8px; font-size:38px; font-weight:700; letter-spacing:-.035em; color:var(--hospital-blue); line-height:1.2; text-shadow:none; white-space:nowrap; overflow-wrap:normal; }
+.hospital-overview-shell .kpi-value small { display:inline; margin-left:7px; font-size:11px; color:var(--hospital-muted); font-weight:400; }
+.hospital-overview-shell .kpi-trend { margin-top:13px; font-size:10px; color:#94a2b5; }
+.hospital-overview-shell .kpi-trend svg { display:none; }
+.hospital-overview-shell [data-component-id*="-outpatient_"],
+.hospital-overview-shell [data-component-id*="-inpatient_"],
+.hospital-overview-shell [data-component-id*="-discharges-"],
+.hospital-overview-shell [data-component-id*="-bed_utilization-"] { padding:16px 10px 12px !important; }
+.hospital-overview-shell [data-component-id*="-outpatient_"] .kpi-value,
+.hospital-overview-shell [data-component-id*="-inpatient_"] .kpi-value,
+.hospital-overview-shell [data-component-id*="-discharges-"] .kpi-value,
+.hospital-overview-shell [data-component-id*="-bed_utilization-"] .kpi-value { font-size:21px; letter-spacing:-.03em; }
+.hospital-overview-shell [data-component-id*="-outpatient_"] .kpi-value small,
+.hospital-overview-shell [data-component-id*="-inpatient_"] .kpi-value small,
+.hospital-overview-shell [data-component-id*="-discharges-"] .kpi-value small,
+.hospital-overview-shell [data-component-id*="-bed_utilization-"] .kpi-value small { display:block; margin:5px 0 0; font-size:10px; }
+.hospital-overview-shell [data-component-id*="-outpatient_"] .kpi-trend,
+.hospital-overview-shell [data-component-id*="-inpatient_"] .kpi-trend,
+.hospital-overview-shell [data-component-id*="-discharges-"] .kpi-trend,
+.hospital-overview-shell [data-component-id*="-bed_utilization-"] .kpi-trend { font-size:9px; margin-top:9px; }
+.hospital-overview-shell [data-component-id*="-departments-"] .design-component-body { padding-top:4px; }
+.hospital-overview-shell [data-component-id*="-departments-"] th { background:#f2f6ff; color:#7687a2; font-weight:500; }
+.hospital-overview-shell [data-component-id*="-departments-"] td { color:#405370; }
+.hospital-overview-shell [data-component-id*="-departments-"] th,
+.hospital-overview-shell [data-component-id*="-departments-"] td { height:26px; padding:5px 10px; }
+.hospital-overview-shell .runtime-controls { background:#f8faff; border-color:#e7edf6; }

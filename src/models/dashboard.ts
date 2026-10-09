@@ -12,6 +12,7 @@ export interface Position {
 
 export interface ComponentStyle {
   background: string
+  backgroundBeforeTransparent?: string
   titleColor: string
   titleSize: number
   titleWeight: number
@@ -21,6 +22,7 @@ export interface ComponentStyle {
   borderRadius?: number
   shadow?: string
   opacity?: number
+  pointerEvents?: 'auto' | 'none'
 }
 
 export interface TextConfig {
@@ -202,6 +204,7 @@ export interface TabsConfig {
 
 export interface DashboardComponent {
   id: string
+  groupId?: string
   type: ComponentType
   title: string
   position: Position

@@ -45,8 +45,8 @@ function aggregate(rows: Array<Record<string, unknown>>, field: string, aggregat
   const numbers = nonEmpty.map(Number).filter(Number.isFinite)
   if (!numbers.length) return 0
   if (aggregation === 'avg') return numbers.reduce((sum, value) => sum + value, 0) / numbers.length
-  if (aggregation === 'min') return Math.min(...numbers)
-  if (aggregation === 'max') return Math.max(...numbers)
+  if (aggregation === 'min') return numbers.reduce((value, next) => Math.min(value, next), Infinity)
+  if (aggregation === 'max') return numbers.reduce((value, next) => Math.max(value, next), -Infinity)
   return numbers.reduce((sum, value) => sum + value, 0)
 }
 
@@ -98,7 +98,7 @@ function measureSeries(measure: MeasureBinding, seriesName?: string) {
   }
 }
 
-export function buildComponentDataView(rows: Array<Record<string, unknown>>, config: ComponentDataConfig): ComponentDataView {
+export function buildComponentDataView(rows: Array<Record<string, unknown>>, config: ComponentDataConfig, includeSeries = true): ComponentDataView {
   const category = config.dimensions.find((item) => item.role === 'category') ?? config.dimensions[0]
   const seriesDimension = config.dimensions.find((item) => item.role === 'series')
   const categoryGroups = new Map<string, Array<Record<string, unknown>>>()
@@ -132,15 +132,14 @@ export function buildComponentDataView(rows: Array<Record<string, unknown>>, con
     seriesValues.sort((left, right) => compareLabels(String(left), String(right))
       * (seriesDimension.sort === 'desc' ? -1 : 1))
   }
-  const series = config.measures.flatMap((measure) => seriesValues.map((seriesValue) => {
+  const series = includeSeries ? config.measures.flatMap((measure) => seriesValues.map((seriesValue) => {
     const result = measureSeries(measure, seriesValue)
-    result.values = categories.map((categoryValue) => aggregate(rows.filter((row) => {
-      const categoryMatches = !category || valueKey(row[category.field]) === categoryValue
+    result.values = categories.map((categoryValue) => aggregate((categoryGroups.get(categoryValue) ?? []).filter((row) => {
       const seriesMatches = !seriesDimension || valueKey(row[seriesDimension.field]) === seriesValue
-      return categoryMatches && seriesMatches
+      return seriesMatches
     }), measure.field, measure.aggregation))
     return result
-  }))
+  })) : []
 
   const tableDimensions = config.dimensions.length ? config.dimensions : []
   const tableGroups = new Map<string, Array<Record<string, unknown>>>()

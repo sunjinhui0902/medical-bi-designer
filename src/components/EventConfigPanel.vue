@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
+import SimpleInteractionWizard from './SimpleInteractionWizard.vue';
+import { replaceSimpleInteractionAction, simpleEditableAction } from '../services/simpleInteractionV3.ts';
 import type {
   ActionDefinitionV3,
   DashboardComponentV3,
@@ -27,9 +29,9 @@ const props = defineProps<{
   owner: EventOwnerV3;
   events: EventBindingV3[];
   parameters: ParameterDefinitionV3[];
-  components: Array<Pick<DashboardComponentV3, "id" | "title">>;
+  components: DashboardComponentV3[];
   pages: Array<Pick<DashboardPageV3, "id" | "name" | "type">>;
-  drillPaths: Array<Pick<DrillPathV3, "id" | "name">>;
+  drillPaths: DrillPathV3[];
   authorableEvents: EventNameV3[];
   fieldCapabilities: (event: EventNameV3) => EventFieldCapabilityV3[];
   inspectBinding: (binding: EventBindingV3) => EventBindingAuthorabilityV3;
@@ -42,6 +44,34 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>();
 const editor = useEventConfigEditorV3();
 const { draft, dirty, error, isNew, source } = editor;
+const advanced = ref(false);
+onMounted(() => {
+  if (props.events.length !== 1) return;
+  const existing = props.events[0]!;
+  editor.load(existing);
+  if (!simpleEditableAction(existing) || props.inspectBinding(existing).readOnly) advanced.value = true;
+});
+function editSimpleExisting(eventId: string) {
+  if (dirty.value) return;
+  editor.load(props.events.find(event => event.id === eventId) ?? null);
+  if (source.value && props.inspectBinding(source.value).readOnly) advanced.value = true;
+}
+function generateSimple(event: EventNameV3, action: ActionDefinitionV3) {
+  if (dirty.value) return;
+  try {
+    const existing = props.events.find(binding => binding.event === event);
+    if (existing) {
+      if (source.value?.id !== existing.id) throw new Error('请先点击编辑已有规则');
+      if (props.inspectBinding(existing).readOnly) throw new Error('已有规则为只读，请使用高级编辑查看原因');
+      draft.value = replaceSimpleInteractionAction(existing, action);
+      editor.markDirty();
+    } else {
+      const binding = createEventDraftV3(event);
+      binding.actions.push(action);
+      editor.begin(binding);
+    }
+  } catch (reason) { error.value = reason instanceof Error ? reason.message : '配置生成失败'; }
+}
 const inspection = computed(() =>
   source.value ? props.inspectBinding(source.value) : null,
 );
@@ -107,9 +137,12 @@ const operatorLabels: Record<EventConditionV3["operator"], string> = {
 };
 
 function chooseEvent(eventId: string) {
+  if (dirty.value && !window.confirm('存在未应用事件草稿，确定放弃并切换吗？')) return;
+  advanced.value = true;
   editor.load(props.events.find((event) => event.id === eventId) ?? null);
 }
 function createEvent(event: Event) {
+  if (dirty.value && !window.confirm('存在未应用事件草稿，确定放弃并新建吗？')) return;
   const name = (event.target as HTMLSelectElement).value as EventNameV3;
   if (name) editor.begin(createEventDraftV3(name));
   (event.target as HTMLSelectElement).value = "";
@@ -309,20 +342,35 @@ defineExpose({
     role="presentation"
     @click.self="requestClose"
   >
-    <aside class="event-config-panel" aria-label="事件配置">
+    <aside class="event-config-panel" role="dialog" aria-modal="true" aria-label="事件配置">
       <header>
         <div>
           <small>EVENT AUTHORING</small>
-          <h2>受控事件配置</h2>
+          <h2>交互配置</h2>
         </div>
         <button type="button" aria-label="关闭事件配置" @click="requestClose">
           ×
         </button>
       </header>
+      <nav class="config-modes" aria-label="交互配置模式">
+        <button :class="{ active: !advanced }" @click="advanced = false">简易配置</button>
+        <button :class="{ active: advanced }" @click="advanced = true">高级编辑</button>
+      </nav>
+      <SimpleInteractionWizard v-if="!advanced"
+        :context="{ owner, events: authorableEvents, fields: [], parameters, components, pages, drillPaths }"
+        :field-capabilities="fieldCapabilities" :bindings="events" :editing="source" :blocked="dirty"
+        @generate="generateSimple" @edit="editSimpleExisting" @advanced="advanced = true" />
+      <div v-if="!advanced && draft" class="simple-draft">
+        <b>{{ eventLabels[draft.event] }} · {{ draft.actions.map(a => actionLabels[a.type]).join(' → ') }}</b>
+        <p>{{ dirty ? '草稿尚未应用' : '配置已应用，可关闭后进入预览' }}；条件、其他动作均保留。</p>
+        <p v-if="error" role="alert" class="event-error">{{ error }}</p>
+        <button :disabled="!dirty" @click="editor.cancel">取消修改</button>
+        <button :disabled="readOnly || !dirty || !draft.actions.length" @click="apply">应用</button>
+      </div>
       <p v-if="!authorableEvents.length" class="readonly-note">
         当前对象的可配置事件类型均已创建
       </p>
-      <div class="event-selector">
+      <div v-if="advanced" class="event-selector">
         <button
           v-for="event in events"
           :key="event.id"
@@ -345,7 +393,7 @@ defineExpose({
           </option>
         </select>
       </div>
-      <div v-if="draft" class="event-editor" :class="{ readonly: readOnly }">
+      <div v-if="advanced && draft" class="event-editor" :class="{ readonly: readOnly }">
         <p v-if="inspection?.reasons.length" class="readonly-note">
           {{ inspection.reasons.join("；") }}
         </p>
@@ -1090,7 +1138,7 @@ defineExpose({
           >
         </footer>
       </div>
-      <div v-else class="event-empty">
+      <div v-else-if="advanced" class="event-empty">
         选择已有事件，或从受控能力目录新建事件。
       </div>
     </aside>
@@ -1098,6 +1146,11 @@ defineExpose({
 </template>
 
 <style scoped>
+.config-modes { display: flex; gap: 8px; padding: 12px 18px; }
+.config-modes button, .simple-draft button { padding: 8px 12px; background: white; border: 1px solid #cbd9e5; border-radius: 6px; }
+.config-modes .active { background: #e7f2ff; color: #1477c9; border-color: #1477c9; }
+.simple-draft { padding: 16px 18px; border-top: 1px solid #dce5ec; }
+.simple-draft button { margin-right: 8px; }
 .event-panel-backdrop {
   position: fixed;
   inset: 0;

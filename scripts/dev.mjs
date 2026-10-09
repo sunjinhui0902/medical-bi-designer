@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { apiNetworkEnv } from './api-network-env.mjs'
 
 const children = new Set()
 let stopping = false
@@ -26,7 +27,7 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 start(
   process.execPath,
   ['--watch', 'server/index.mjs'],
-  { env: { ...process.env, BI_API_PORT: '5175' } },
+  { env: { ...apiNetworkEnv(), BI_API_PORT: '5175' } },
 )
 start(
   npmCommand,

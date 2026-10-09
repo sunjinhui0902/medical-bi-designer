@@ -7,6 +7,7 @@ const apiProxyAgent = new Agent({ keepAlive: true, maxSockets: 8 })
 export default defineConfig({
   cacheDir: 'node_modules/.vite-medical-bi',
   plugins: [vue()],
+  build: { rollupOptions: { output: { manualChunks: { charts: ['echarts/core', 'echarts/charts', 'echarts/components', 'echarts/renderers', 'echarts/features'] } } } },
   server: {
     host: '127.0.0.1',
     port: 5174,

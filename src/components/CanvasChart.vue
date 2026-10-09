@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from '../services/echartsRuntime'
 
 const props = defineProps<{ kind: 'line' | 'bar' | 'pie' }>()
 const chartElement = ref<HTMLDivElement | null>(null)

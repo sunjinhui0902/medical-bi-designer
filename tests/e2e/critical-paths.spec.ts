@@ -263,32 +263,46 @@ test('数据管理主页面均可从设计器进入', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
 })
 
-test('离开数据集页后迟到详情响应不能把用户拉回旧页面', async ({ page }) => {
-  let release!: () => void
-  let markHeld!: () => void
-  let markFinished!: () => void
-  const held = new Promise<void>(resolve => { markHeld = resolve })
-  const gate = new Promise<void>(resolve => { release = resolve })
-  const finished = new Promise<void>(resolve => { markFinished = resolve })
-  await page.route('**/api/datasets/*', async route => {
-    if (route.request().method() !== 'GET') return route.continue()
-    const response = await route.fetch()
-    markHeld()
-    await gate
-    await route.fulfill({ response })
-    markFinished()
+for (const entry of ['目录自动选择', '空目录 URL 指定'] as const) {
+  test(`离开数据集页后迟到详情响应不能把用户拉回旧页面：${entry}`, async ({ page }) => {
+    // Own every input: a clean CI checkout has no saved datasets or sources.
+    const dataset = {
+      version: 2, id: 'dataset-e2e-late-detail', code: 'e2e_late_detail', name: '合成迟到详情测试',
+      category: '测试', purpose: '验证页面离开后的响应边界', description: '',
+      dataSourceId: '', sql: 'select 1 as value', status: 'draft', fields: [], parameters: [],
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }
+    const items = entry === '目录自动选择' ? [dataset] : []
+    await page.route(/\/api\/datasets(?:\?.*)?$/, route => route.fulfill({ json: { items, total: items.length } }))
+    await page.route('**/api/datasources', route => route.fulfill({ json: [] }))
+
+    let release!: () => void
+    let detailHeld = false
+    let detailFinished = false
+    const gate = new Promise<void>(resolve => { release = resolve })
+    await page.route(`**/api/datasets/${dataset.id}`, async route => {
+      detailHeld = true
+      await gate
+      await route.fulfill({ json: dataset })
+      detailFinished = true
+    })
+    try {
+      const url = entry === '目录自动选择' ? '/datasets' : `/datasets?id=${dataset.id}`
+      await page.goto(url)
+      await expect.poll(() => detailHeld, { message: '合成数据集详情应已请求并挂起' }).toBe(true)
+      await page.getByRole('link', { name: '数据源', exact: true }).click()
+      await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
+      release()
+      await expect.poll(() => detailFinished, { message: '离开页面后应完成迟到详情响应' }).toBe(true)
+      // Let the real response callback run before checking navigation.
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      await expect(page).toHaveURL(/\/data-sources$/)
+      await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
+    } finally {
+      release()
+    }
   })
-  await page.goto('/datasets')
-  await held
-  await page.getByRole('link', { name: '数据源', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
-  release()
-  await finished
-  // A subsequent frame lets the actual response callback run before checking navigation.
-  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-  await expect(page).toHaveURL(/\/data-sources$/)
-  await expect(page.getByRole('heading', { name: '数据源', exact: true })).toBeVisible()
-})
+}
 
 test('参数中心可以保存合成参数定义', async ({ page }) => {
   await page.goto('/parameters')

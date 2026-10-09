@@ -1,5 +1,7 @@
 # 数据集迟到响应测试的独立样本
 
+最终结果：PR #15 已合并，GitHub 完整 E2E 27/27 PASS，公共测试 391/391、类型检查、构建及依赖审计均通过。[最终 CI](https://github.com/sunjinhui0902/medical-bi-designer/actions/runs/37892104061)；使用入口见 [本轮说明](./release-20261009.md)。
+
 任务：TYBI-CI-20261009-140046，DIRECT；基线 release/tybi-ui-20261009 / 57ec10c。仅修复 PR #15 的测试环境依赖，沿用用户已授权的合并与推送范围。
 
 ## 根因与调整

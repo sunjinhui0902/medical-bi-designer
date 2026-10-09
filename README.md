@@ -1,12 +1,27 @@
 # Medical BI Designer
 
 Medical BI Designer 是一个面向医疗运营分析场景的开源低代码 BI 设计器，提供数据集建模、可视化组件、参数筛选、多页面交互和本机看板工作区等通用能力。
-当前公开版本基于 V2.0 可视化底座和 V3 Phase7—Phase10 运行时，已支持参数化查询、动态选项、多页面事件、组件联动、下钻、导航、弹窗、页签容器和自适应预览。本地工作区已继续实现知识资产管理、受限医院模板计划生成和四页门诊样例；这些未提交候选不等同于公开版本或任意业务提示词生成能力。
+当前主线基于 V2.0 可视化底座和 Dashboard V3 Phase7—Phase10 运行时，已包含知识资产工作台、受控医院模板计划生成、门诊五页样例、深浅主题、批量布局、组件组合、移动预览和模型服务配置。真实业务快照与密钥由使用者在本机提供；AI 生成能力当前受模板与输出契约约束。
+
+## 当前主线（2026-10-09）
+
+[PR #15](https://github.com/sunjinhui0902/medical-bi-designer/pull/15) 已合并，功能交付提交为 `1e1887c`。[GitHub 完整验证](https://github.com/sunjinhui0902/medical-bi-designer/actions/runs/37892104061) 通过：391 项公共测试、27 项 Chromium E2E、类型检查、构建及依赖审计（0 漏洞）。
+
+- 深色驾驶舱 / 浅色日常分析主题；组件库与配置区可独立折叠。
+- 拖动对齐参考线与吸附、批量位置调整、组合 / 取消组合、图层叠放与透明背景。
+- 配置窗口可拖动，组件勾选与画布高亮联动。
+- PC 设计手机 / 平板页面；指标卡按可用宽度排成两至三列，极窄区域回退为一列。
+- 设置页可查看已保存模型；看板助手可选择本次调用的模型服务。
+- 医院 → 科室 → 医生的配置式筛选、联动、跳转、下钻、返回及已加载明细 CSV 下载。
+
+操作入口与边界见 [本轮使用与验收说明](./docs/release-20261009.md)。工程包版本仍为 `0.1.0`；此次主线更新没有创建新的版本标签或 GitHub Release。
 
 v0.1.0 is the first public Open Source release of Medical BI Designer, based on the existing V2.0 development baseline.
 v0.1.0 为 Medical BI Designer 的首个公开开源版本，基于现有 V2.0 开发基线发布。
 
 ## Preview
+
+下图为历史设计器截图；当前功能与操作方式以本轮说明为准。
 
 ![Medical BI Designer](./docs/04_测试验证/截图/step5.1-真实数据集绑定验收截图.png)
 
@@ -38,7 +53,7 @@ Copyright (C) 2026 sunjinhui0902.
 - 使用实际大小、适应宽度和适应窗口三种预览模式，并允许普通组件缩小到 20 × 20。
 - 在本机工作区新建和切换多个独立看板，并在每个看板内管理多个画布。
 - 使用页签块直接接收组件库或画布组件，支持跨页签移动、拖回画布，并配置标题面板样式和页签事件参数。
-- 保存、导入和导出 V2 看板 JSON。
+- 保存、导入和导出 V3 看板 JSON，兼容 V2 导入迁移。
 - 保存、分类和复用医疗业务组件模板。
 - 使用 V3 参数定义、筛选控件和组件级数据集参数绑定。
 - 使用数据集驱动的动态选项、依赖关系和级联筛选。
@@ -78,7 +93,9 @@ Phase8—Phase10 已完成以下核心能力并通过阶段验收；正式版本
 - Reusable dashboard templates
 - Expanded automated testing
 
-### v0.3 — Knowledge Assets & Intelligent Analytics（规划已确认）
+### v0.3 — Knowledge Assets & Intelligent Analytics（部分能力已进入主线）
+
+已落地知识资产工作台、受控模板计划和 V3 草稿编译；完整知识校验、任意业务生成及模型效果评测仍按下列路线推进。
 
 - Verifiable healthcare BI knowledge assets
 - Metric, model, SQL, template, and lineage specifications
@@ -139,8 +156,12 @@ npm run dev
 - `npm run test:e2e`：独占开发端口的通用浏览器回归；端口已被占用时拒绝运行，不停止用户的开发服务。
 - `npm run build`：类型检查与生产构建。
 
-本地样例菜单使用随源码维护的模板计划，不依赖历史 ChatGPT 请求文件。实际业务数据仍由本地证据提供，不会用演示数据填补缺失。新业务提示词生成四页原生 V3 配置仍待验收。详细优先级见 [2026-10-08 项目复查](./docs/project-review-20261008.md)。
+本地样例菜单使用随源码维护的模板计划，不依赖历史 ChatGPT 请求文件。门诊提示词采用七字段小型计划，由项目校验并编译为原生 V3；输出示例导入、编辑、保存重开已验收，不能替代真实模型生成效果评测。公开源码不包含私有 ADS 快照，首次克隆需自行接入本地数据。后续优先级见 [BACKLOG](./BACKLOG.md)。
 
+- [本轮使用与验收说明](./docs/release-20261009.md)
+- [模型 API 配置与调用选择](./docs/model-api-config-20260929.md)
+- [电脑手机预览步骤](./docs/mobile-validation-guide-20261009.md)
+- [跨模型门诊提示词](./docs/outpatient-portable-prompts-20261008.md)
 - [项目当前状态](./docs/项目当前状态.md)
 - [Phase8 实施方案](./docs/02_V3架构/Phase8实施方案.md)
 - [Phase8 最终验收记录](./docs/04_测试验证/验收记录/Phase8最终验收记录.md)
@@ -161,7 +182,7 @@ npm run dev
 - 已有快照文件更新后可手工刷新；数据库采集仍是独立只读脚本，未接成定时任务。
 - 知识库根可在启动 API 前设置 `TYBI_KNOWLEDGE_ROOT`，目录需包含 `02_assets`；不设置时沿用现有搜索路径。配置无效会明确失败，不静默切换知识库。
 - 本地 JSON 修改使用同进程队列及跨进程 `.mutation.lock`。异常退出可能残留锁；保存等待10秒后报错并保留原文件，应确认进程已退出后处理残留锁。
-- 完整证据见 [演示收尾](docs/demo-closeout-20261008.md)。API、医生对账和准确性验收按用户要求暂停。
+- 历史证据见 [演示收尾](docs/demo-closeout-20261008.md)，最终主线状态见 [本轮使用与验收说明](./docs/release-20261009.md)。医生全量对账、真实模型生成效果及生产规模性能不在本轮已通过范围。
 
 ## Commercial Licensing
 
